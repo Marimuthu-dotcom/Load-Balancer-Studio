@@ -1,0 +1,6 @@
+{
+  "name": "Network Load Balancing Simulator",
+  "description": "Interactive educational simulation demonstrating Round Robin, Weighted Round Robin, Least Connections, and Capacity-based server routing algorithms with real-time request visualization and decision traces.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
