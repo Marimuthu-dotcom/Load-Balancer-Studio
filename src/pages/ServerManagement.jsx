@@ -177,10 +177,11 @@ export default function ServerManagement() {
             const active = server.activeRequests || 0;
             const maxCap = Math.max(1, server.maxCapacity || 1);
             const conc = Math.max(1, server.concurrencyLimit || 1);
-            const remainingCap = Math.max(0, maxCap - active);
+            const currentW = server.currentWorkload !== undefined ? server.currentWorkload : active;
+            const remainingCap = Math.max(0, maxCap - currentW);
             const remainingConc = Math.max(0, conc - active);
 
-            const utilizationPercent = Math.min(100, Math.max(0, Math.round((active / maxCap) * 100)));
+            const workloadPercent = Math.min(100, Math.max(0, Math.round((currentW / maxCap) * 100)));
             const concurrencyPercent = Math.min(100, Math.max(0, Math.round((active / conc) * 100)));
 
             return (
@@ -328,22 +329,22 @@ export default function ServerManagement() {
                 <div className="space-y-1">
                   <div className="flex items-center justify-between text-[11px]">
                     <span className="text-[#a1a1aa]">
-                      Overall Capacity: ({active} / {maxCap})
+                      Reserved Workload: <strong className="text-white font-mono">{currentW}</strong> / {maxCap} units
                     </span>
-                    <span className="font-mono text-xs text-white font-semibold tabular-nums">
-                      {utilizationPercent}%
+                    <span className="font-mono text-xs text-amber-400 font-semibold tabular-nums">
+                      {remainingCap} units free ({workloadPercent}%)
                     </span>
                   </div>
                   <div className="h-2 bg-[#141416] rounded-full overflow-hidden border border-[#27272a]">
                     <div
                       className={`h-full transition-all duration-300 rounded-full ${
-                        utilizationPercent >= 100
+                        workloadPercent >= 100
                           ? 'bg-red-500'
-                          : utilizationPercent > 70
+                          : workloadPercent > 70
                           ? 'bg-amber-500'
                           : 'bg-emerald-500'
                       }`}
-                      style={{ width: `${utilizationPercent}%` }}
+                      style={{ width: `${workloadPercent}%` }}
                     />
                   </div>
                 </div>

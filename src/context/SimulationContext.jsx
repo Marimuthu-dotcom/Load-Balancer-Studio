@@ -30,6 +30,13 @@ import {
   ALGORITHM_INFO,
   globalAlgorithmState
 } from '../engine/algorithms.js';
+import {
+  fetchState,
+  submitRequestToApi,
+  updateAlgorithmInApi,
+  resetSimulationInApi,
+  loadDemoScenarioInApi
+} from '../engine/api.js';
 
 const SimulationContext = createContext(null);
 
@@ -83,17 +90,21 @@ export function SimulationProvider({ children }) {
 
     const serverDistribution = {};
     servers.forEach(s => {
+      const curW = s.currentWorkload !== undefined ? s.currentWorkload : s.activeRequests;
       serverDistribution[s.id] = {
         name: s.name,
         assigned: s.totalAssigned || 0,
         active: s.activeRequests || 0,
+        currentWorkload: curW,
         completed: s.completedRequests || 0,
         failed: s.failedRequests || 0,
         maxCapacity: s.maxCapacity,
         concurrencyLimit: s.concurrencyLimit,
         weight: s.weight,
         isAutoScaled: s.isAutoScaled || false,
-        utilization: s.maxCapacity > 0 ? Math.min(100, Math.round((s.activeRequests / s.maxCapacity) * 100)) : 0
+        utilization: s.maxCapacity > 0 ? Math.min(100, Math.round((curW / s.maxCapacity) * 100)) : 0,
+        workloadUtilization: s.maxCapacity > 0 ? Math.min(100, Math.round((curW / s.maxCapacity) * 100)) : 0,
+        concurrencyUtilization: s.concurrencyLimit > 0 ? Math.min(100, Math.round((s.activeRequests / s.concurrencyLimit) * 100)) : 0
       };
     });
 
@@ -114,7 +125,7 @@ export function SimulationProvider({ children }) {
   /**
    * Complete an in-flight request
    */
-  const handleRequestCompleted = useCallback((requestId, serverId, clientId, isFailed = false, failReason = null) => {
+  const handleRequestCompleted = useCallback((requestId, serverId, clientId, isFailed = false, failReason = null, workloadUnits = 1) => {
     // Remove timer ref
     activeTimersRef.current.delete(requestId);
 
@@ -126,9 +137,12 @@ export function SimulationProvider({ children }) {
       prevServers.map(s => {
         if (s.id !== serverId) return s;
         const newActive = Math.max(0, s.activeRequests - 1);
+        const curW = s.currentWorkload !== undefined ? s.currentWorkload : s.activeRequests;
+        const newWorkload = Math.max(0, curW - (Number(workloadUnits) || 1));
         return {
           ...s,
           activeRequests: newActive,
+          currentWorkload: newWorkload,
           completedRequests: isFailed ? s.completedRequests : s.completedRequests + 1,
           failedRequests: isFailed ? s.failedRequests + 1 : s.failedRequests
         };
@@ -228,7 +242,8 @@ export function SimulationProvider({ children }) {
 
     // Step 1: Initial algorithm evaluation
     let currentFleet = [...servers];
-    let decision = routeRequest(selectedAlgorithm, currentFleet);
+    const incomingWorkload = Math.max(1, Number(requestItem.workloadUnits) || 1);
+    let decision = routeRequest(selectedAlgorithm, currentFleet, incomingWorkload);
     let selectedServer = decision.selectedServer;
     let didAutoScale = false;
     let autoScaleReason = '';
@@ -392,13 +407,15 @@ export function SimulationProvider({ children }) {
       didAutoScale
     });
 
-    // Update Server counts (increase active and totalAssigned)
+    // Update Server counts (increase active, currentWorkload, and totalAssigned)
     setServers(prevServers =>
       prevServers.map(s => {
         if (s.id !== selectedServer.id) return s;
+        const curW = s.currentWorkload !== undefined ? s.currentWorkload : s.activeRequests;
         return {
           ...s,
           activeRequests: s.activeRequests + 1,
+          currentWorkload: curW + incomingWorkload,
           totalAssigned: (s.totalAssigned || 0) + 1
         };
       })
@@ -428,7 +445,8 @@ export function SimulationProvider({ children }) {
       startTime: Date.now(),
       stage: 'client', // 'client' -> 'lb_entering' -> 'lb_evaluating' -> 'server_travel' -> 'processing'
       progress: 0,
-      payloadDescription: requestItem.payloadDescription
+      payloadDescription: requestItem.payloadDescription,
+      workloadUnits: incomingWorkload
     };
 
     setActiveRequests(prev => [...prev, activeItem]);
@@ -455,7 +473,7 @@ export function SimulationProvider({ children }) {
     // Completion timer
     const completionTimer = setTimeout(() => {
       if (runGenerationRef.current !== currentGen) return;
-      handleRequestCompleted(requestItem.id, selectedServer.id, client.id, false);
+      handleRequestCompleted(requestItem.id, selectedServer.id, client.id, false, null, incomingWorkload);
     }, effectiveDelay);
 
     activeTimersRef.current.set(requestItem.id, completionTimer);
@@ -555,6 +573,69 @@ export function SimulationProvider({ children }) {
     setSimulationStatus('running');
     return dispatchRequest(req);
   }, [settings.defaultDurationMs, dispatchRequest]);
+
+  /**
+   * Sync with authoritative backend API (supports User Form submissions from port 5174)
+   */
+  const syncFromBackend = useCallback(async () => {
+    try {
+      const data = await fetchState();
+      if (data && data.success) {
+        if (Array.isArray(data.servers)) setServers(data.servers);
+        if (Array.isArray(data.activeRequests)) setActiveRequests(data.activeRequests);
+        if (Array.isArray(data.queuedRequests)) setQueuedRequests(data.queuedRequests);
+        if (Array.isArray(data.requests)) setHistory(data.requests);
+        if (data.selectedAlgorithm) setSelectedAlgorithm(data.selectedAlgorithm);
+        if (data.latestDecision) setLatestDecision(data.latestDecision);
+        if (data.settings) setSettings(prev => ({ ...prev, ...data.settings }));
+      }
+    } catch (err) {
+      // offline fallback
+    }
+  }, []);
+
+  useEffect(() => {
+    syncFromBackend();
+    const interval = setInterval(syncFromBackend, 1200);
+    return () => clearInterval(interval);
+  }, [syncFromBackend]);
+
+  /**
+   * Submit single Form Request from User Portal or integrated form
+   * (Strict 1 submit = 1 request)
+   */
+  const submitFormRequest = useCallback(async (formPayload) => {
+    try {
+      const apiRes = await submitRequestToApi(formPayload);
+      if (apiRes && apiRes.success) {
+        await syncFromBackend();
+        return apiRes;
+      }
+    } catch (err) {
+      console.warn('Backend API unavailable, using in-memory fallback', err);
+    }
+
+    // Local fallback
+    const id = `req-${Date.now().toString(36).slice(-4)}-${requestCounterRef.current++}`;
+    const reqItem = {
+      id,
+      clientId: clients[0]?.id || 'cli-1',
+      clientName: formPayload.clientName || 'Interactive User',
+      durationMs: settings.defaultDurationMs || 2500,
+      payloadDescription: formPayload.title || formPayload.description || 'User Form Request',
+      workloadUnits: Number(formPayload.workloadUnits) || 1,
+      createdAt: Date.now()
+    };
+    setSimulationStatus('running');
+    const dispatched = dispatchRequest(reqItem);
+    return {
+      success: true,
+      request: {
+        ...reqItem,
+        status: dispatched ? 'processing' : 'rejected'
+      }
+    };
+  }, [clients, settings.defaultDurationMs, dispatchRequest, syncFromBackend]);
 
   /**
    * User Action: Quick Fleet Deployment
@@ -811,7 +892,9 @@ export function SimulationProvider({ children }) {
         editServer,
         deleteServer,
         toggleServerEnabled,
-        toggleServerPaused
+        toggleServerPaused,
+        submitFormRequest,
+        syncFromBackend
       }}
     >
       {children}

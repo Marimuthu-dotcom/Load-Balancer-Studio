@@ -16,6 +16,7 @@ import RequestHistory from './pages/RequestHistory.jsx';
 import AlgorithmComparison from './pages/AlgorithmComparison.jsx';
 import SettingsPanel from './pages/SettingsPanel.jsx';
 import TestSuite from './pages/TestSuite.jsx';
+import UserFormPortal from './pages/UserFormPortal.jsx';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState('dashboard');
@@ -25,6 +26,8 @@ export default function App() {
     switch (currentTab) {
       case 'dashboard':
         return <Dashboard onNavigate={setCurrentTab} />;
+      case 'userForm':
+        return <UserFormPortal />;
       case 'studio':
         return <SimulationStudio />;
       case 'clients':

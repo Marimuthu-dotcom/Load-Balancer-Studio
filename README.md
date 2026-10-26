@@ -1,107 +1,110 @@
 # Network Load Balancing Simulator
 
-An interactive, educational web application built with **React**, **Vite**, and **Tailwind CSS v4** demonstrating how a network load balancer distributes client traffic across heterogeneous server fleets.
+An interactive, educational web application built with **React**, **Vite**, **Express**, and **Tailwind CSS v4** demonstrating how a network load balancer distributes client traffic across heterogeneous server fleets.
+
+Features a **dual-application architecture**:
+1. **Load Balancer Portal & Authoritative API** (Port 3000 / 5173): Server management, algorithm switcher, live visual pipeline, telemetry counters, and dynamic auto-scaling on overload.
+2. **Standalone Client User Application** (`User/` on Port 5174): Standard transactional business form submitting discrete 1-to-1 requests with workload units, idempotency protection, and live request status tracking.
 
 ---
 
-## 1. Quick Start & Commands
+## 1. Quick Start & Execution Commands
 
+### Terminal 1: Load Balancer Management Portal & Authoritative API (Port 3000)
 ```bash
-# 1. Install dependencies
-npm install
-
-# 2. Start the local development server (port 3000)
+# PowerShell or Bash
 npm run dev
+```
+- Load Balancer UI: `http://localhost:3000`
+- Authoritative REST API: `http://localhost:3000/api/state`
 
-# 3. Build for production distribution
-npm run build
+### Terminal 2: Standalone User Client Application (Port 5174)
+```bash
+# PowerShell or Bash
+npm run dev:user
+```
+- User Application Form: `http://localhost:5174`
+
+*Note: In the AI Studio preview container, both applications are also unified: you can access the "User Request Form" tab directly within the Load Balancer Portal navigation for single-window testing.*
+
+---
+
+## 2. System Architecture
+
+```text
++------------------------------------+        HTTP POST /api/requests
+|    Standalone User App (Port 5174) | ------------------------------------+
+|  • Normal Transactional Form       |  (Idempotency key, workload units)  |
+|  • 1 Submit = Exactly 1 Request    |                                     |
++------------------------------------+                                     |
+                                                                           v
++------------------------------------+                         +------------------------+
+| Load Balancer Portal (Port 3000)   |                         |  Authoritative Engine  |
+|  • System Dashboard & Metrics      | <--- 1s State Polling - |  • Strict Capacity     |
+|  • Live Visual Simulation Studio   |                         |  • Strict Concurrency  |
+|  • Server Fleet Management         |                         |  • Elastic Auto-Scale  |
+|  • 6 Load-Balancing Algorithms     |                         |  • REST API Service    |
++------------------------------------+                         +------------------------+
+                                                                           |
+                                      +------------------------------------+------------------------------------+
+                                      |                                    |                                    |
+                                      v                                    v                                    v
+                           [Server A (Weight 5)]                [Server B (Weight 3)]                [Server C (Weight 2)]
+                           Cap: 10 units | Conc: 3              Cap: 6 units | Conc: 2               Cap: 4 units | Conc: 2
 ```
 
 ---
 
-## 2. Core Features
+## 3. Strict Capacity & Concurrency Enforcement
 
-- **Actual Algorithmic Logic**: 6 real load-balancing algorithms implemented in pure JavaScript (no mocks or fake formulas).
-- **Live Pipeline Visualization**: Full `Clients → Load Balancer Hub → Server Cluster` visualization with animated request transit, in-flight execution, and dynamic load indicators.
-- **Transparent Decision Traces**: Human-readable, beginner-friendly explanations generated dynamically for every routing decision (e.g. why Server B was chosen over Server A and C).
-- **Fleet Admission Control**: Strict enforcement of concurrency limits (`Active ≤ Concurrency Limit`) and maximum capacities (`Active ≤ Max Capacity`), with configurable queueing or rejection policies.
-- **Administrative Server States**: Toggle servers between Online, Administratively Disabled, and Paused (allowing in-flight requests to drain while rejecting new admissions).
-- **Repeatable Benchmark Comparisons**: Deterministic side-by-side performance benchmarks running the exact same workload across all 6 algorithms.
-- **Audit History & CSV Export**: Searchable, filterable audit log persisted in `localStorage` with full JSON decision snapshots and CSV file export.
-- **Automated Self-Test Suite**: 14 automated verification tests executable directly in the UI proving rotation correctness, weight proportionalities, concurrency enforcement, and stale callback elimination.
+The engine enforces a rigorous separation between **Reserved Workload Units** and **Active Concurrency Connections**:
+
+| Metric | Field | Description | Rejection Condition |
+| :--- | :--- | :--- | :--- |
+| **Reserved Workload** | `currentWorkload` | Cumulative resource units currently booked by in-flight tasks | `currentWorkload + incomingWorkload > maxCapacity` (e.g. $8 + 3 = 11 > 10 \to$ reject) |
+| **Active Concurrency** | `activeRequests` | Number of simultaneous in-flight connections being processed | `activeRequests >= concurrencyLimit` (e.g. 3 active on limit of $3 \to$ reject/queue) |
+| **Total Managed** | `totalAssigned` | Lifetime cumulative requests assigned to this node | Monotonically increasing audit counter |
+
+When requests finish processing:
+- `currentWorkload` is decremented by the request's `workloadUnits`.
+- `activeRequests` is decremented by 1.
+- Both headroom slots are immediately reclaimed, and any requests waiting in the admission queue are automatically processed.
 
 ---
 
-## 3. Implemented Algorithms
+## 4. Controlled Dynamic Auto-Scaling on Server Overload
 
-| Algorithm | Code | Selection Formula & Principle | Best Suited For |
+When incoming traffic saturates the existing server fleet:
+1. The load balancer checks if `autoScaleOnOverload` is enabled (default: `true`).
+2. If all eligible servers are at maximum capacity or concurrency, the system identifies the saturated server and dynamically spawns an auto-scaled replica (e.g., `Server A (Auto-Replica 1)`).
+3. The replica inherits the parent server's configuration (weight, maximum capacity, and concurrency limit).
+4. The incoming request is allocated to the new replica, and an alert is broadcast to the portal.
+5. Auto-scaling is bounded by `maxAutoScaledServers` (default: 8) to prevent uncontrolled resource exhaustion.
+
+---
+
+## 5. Implemented Algorithms
+
+| Algorithm | Code | Formula & Principle | Best Suited For |
 | :--- | :---: | :--- | :--- |
-| **Round Robin** | `RR` | Cyclic rotation: `Index = (Index + 1) % EligibleServers.length` | Homogeneous hardware with uniform request execution times |
-| **Weighted Round Robin** | `WRR` | Smooth NGINX-style deficit interleaving based on configured weight ratios | Heterogeneous hardware under uniform request processing loads |
-| **Least Connections** | `LC` | `Server = argmin(ActiveRequests_i)` with deterministic tie-breaking | Workloads with non-uniform processing durations (e.g., long polling) |
-| **Weighted Least Connections** | `WLC` | Normalized load score: `Score = ActiveRequests / Weight` | Heterogeneous servers handling unpredictable, variable durations |
-| **Capacity-Based Selection** | `CBS` | Headroom evaluation: `RemainingCapacity = MaxCapacity − ActiveRequests` | Memory-constrained systems with hard allocation quotas |
-| **Least Connections (with Limits)** | `LCC` | Strict admission filter (`Active < Concurrency & Active < Capacity`) → `min(Active/Weight)` | Production-grade admission control preventing cascading server failures |
+| **Round Robin** | `RR` | Cyclic rotation: `Index = (Index + 1) % EligibleServers.length` | Uniform hardware with identical tasks |
+| **Weighted Round Robin** | `WRR` | Smooth NGINX-style deficit interleaving based on configured weights | Heterogeneous hardware under uniform duration tasks |
+| **Least Connections** | `LC` | `Server = argmin(ActiveRequests_i)` | Long-running queries with variable execution durations |
+| **Weighted Least Connections** | `WLC` | Normalized load score: `Score = ActiveRequests / Weight` | Non-uniform tasks across heterogeneous servers |
+| **Capacity-Based Selection** | `CBS` | Headroom evaluation: `RemainingCapacity = MaxCapacity − CurrentWorkload` | Workload-constrained clusters with discrete RAM/CPU limits |
+| **Least Connections (with Limits)**| `LCC`| Hard filters (`Workload ≤ Cap` & `Active < Conc`) $\to$ `min(Active/Weight)` | Production admission control preventing cascading crashes |
 
 ---
 
-## 4. Default Demo Scenario
+## 6. Verifiable Test Suite (22 Automated Tests)
 
-Clicking the **"Load Demo Scenario"** button in the header configures the standard college evaluation topology:
-
-1. **5 Origin Clients**:
-   - `cli-1`: Client 1 — Web Browser (`Browser`)
-   - `cli-2`: Client 2 — Mobile App (`Mobile App`)
-   - `cli-3`: Client 3 — Desktop App (`Desktop App`)
-   - `cli-4`: Client 4 — API Client (`API Client`)
-   - `cli-5`: Client 5 — Test Runner (`Custom`)
-
-2. **3 Target Servers**:
-   - **Server A (High-Capacity)**: Weight = 5, Max Capacity = 10, Concurrency Limit = 3
-   - **Server B (Medium-Capacity)**: Weight = 3, Max Capacity = 6, Concurrency Limit = 2
-   - **Server C (Standard)**: Weight = 2, Max Capacity = 4, Concurrency Limit = 2
-
-3. **Standard Workload**:
-   - 3 requests per client = 15 total requests.
-
----
-
-## 5. Architectural Separation
-
-```
-src/
-├── components/          # Reusable UI primitives (Modals, Headers, Charts, Confirmations)
-│   ├── ConfirmModal.jsx
-│   ├── Header.jsx
-│   ├── Modal.jsx
-│   ├── ServerLoadChart.jsx
-│   └── Sidebar.jsx
-├── context/             # SimulationContext: Central reactive simulation state
-│   └── SimulationContext.jsx
-├── engine/              # Pure algorithmic and deterministic evaluation logic
-│   ├── algorithms.js    # 6 Load Balancing Algorithms
-│   ├── tests.js         # 14 Automated Assertion Tests
-│   └── validation.js    # Input and batch validation rules
-├── pages/               # Primary application views
-│   ├── AlgorithmComparison.jsx
-│   ├── ClientManagement.jsx
-│   ├── Dashboard.jsx
-│   ├── RequestHistory.jsx
-│   ├── ServerManagement.jsx
-│   ├── SettingsPanel.jsx
-│   ├── SimulationStudio.jsx
-│   └── TestSuite.jsx
-├── storage/             # Namespaced localStorage persistence layer
-│   └── localStorage.js
-├── App.jsx              # Main layout and tab router
-├── index.css            # Base Tailwind styles and VS Code scrollbars
-└── main.jsx             # React root mount
-```
-
----
-
-## 6. Known Educational Model Limitations
-
-1. **Simulated Timing**: Request processing times use JavaScript browser timers (`setTimeout`) rather than physical network socket round-trips.
-2. **Single-Threaded Dispatch**: All load-balancing evaluations run inside the browser thread; real-world hardware load balancers (e.g. F5, HAProxy, AWS ALB) distribute packet processing across kernel network queues.
-3. **Storage Boundary**: Data is persisted in client browser `localStorage` and is isolated per browser profile; it is not a distributed backend database.
+Navigate to the **Self-Test Suite** in the navigation menu to run all 22 automated unit and integration tests:
+- **Test 1-14**: Rotation correctness, WRR smooth interleaving, Least Connections selection, administrative state disabling, pause draining, history serialization, and stale callback elimination.
+- **Test 15 (Test A)**: Single Form Submission (1 submit = exactly 1 request generated and routed).
+- **Test 16 (Test B)**: Duplicate Form Submission Prevention (Idempotency key and button locking).
+- **Test 17 (Test C)**: Capacity Enforcement (8 reserved + 3 incoming = 11 > 10 maxCapacity $\to$ admission denied).
+- **Test 18 (Test D)**: Concurrency Limit Enforcement (3 active connections on limit of 3 $\to$ admission denied).
+- **Test 19 (Test E)**: Algorithm Correctness Under Headroom Limits (routes to eligible server when primary is saturated).
+- **Test 20 (Test F)**: Controlled Simulated Server Scaling (auto-replica spawned with matching specs on fleet saturation).
+- **Test 21 (Test G)**: Request Completion and Capacity Recovery (workload units and connection slots reclaimed).
+- **Test 22 (Test H)**: History and Telemetry Accuracy.

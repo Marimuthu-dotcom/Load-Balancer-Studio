@@ -19,7 +19,8 @@ import {
 export default function Sidebar({ currentTab, setCurrentTab, isMobileOpen, setIsMobileOpen }) {
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'studio', label: 'Live Simulation', icon: Radio, highlight: true },
+    { id: 'userForm', label: 'User Request Form', icon: FileText, highlight: true },
+    { id: 'studio', label: 'Live Simulation', icon: Radio },
     { id: 'clients', label: 'Client Management', icon: Users },
     { id: 'servers', label: 'Server Management', icon: Server },
     { id: 'history', label: 'Request History', icon: FileText },
@@ -111,12 +112,19 @@ export default function Sidebar({ currentTab, setCurrentTab, isMobileOpen, setIs
         <div className="p-3 border-t border-[#27272a] bg-[#141416]/50">
           <div className="p-2.5 bg-[#18181b] border border-[#27272a] rounded text-[11px] space-y-1">
             <div className="flex items-center justify-between text-[#858585]">
-              <span>Mode</span>
-              <span className="text-[#10b981] font-mono">Client-Side Sim</span>
+              <span>API Gateway</span>
+              <span className="text-[#10b981] font-mono">Port 3000</span>
             </div>
             <div className="flex items-center justify-between text-[#858585]">
-              <span>Persistence</span>
-              <span className="text-[#a1a1aa] font-mono">localStorage</span>
+              <span>User App</span>
+              <a
+                href="http://localhost:5174"
+                target="_blank"
+                rel="noreferrer"
+                className="text-[#f59e0b] hover:underline font-mono"
+              >
+                Port 5174 ↗
+              </a>
             </div>
           </div>
         </div>

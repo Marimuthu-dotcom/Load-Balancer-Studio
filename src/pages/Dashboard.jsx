@@ -290,26 +290,26 @@ export default function Dashboard({ onNavigate }) {
                       </span>
                     </div>
 
-                    {/* Utilization Bar */}
-                    <div className="space-y-1">
+                    {/* Utilization Bars */}
+                    <div className="space-y-1.5">
                       <div className="flex items-center justify-between text-[11px] text-[#a1a1aa]">
                         <span>
-                          Active Connections: ({active} / {conc} concurrency)
+                          Workload: <strong className="text-white font-mono">{server.currentWorkload !== undefined ? server.currentWorkload : active}</strong> / {maxCap} units
                         </span>
-                        <span className="font-mono tabular-nums font-semibold text-white">
-                          Total Managed: {server.totalAssigned || 0}
+                        <span className="font-mono tabular-nums text-amber-400">
+                          {active} / {conc} active conn
                         </span>
                       </div>
-                      <div className="h-2 bg-[#141416] rounded-full overflow-hidden border border-[#27272a]">
+                      <div className="h-1.5 bg-[#141416] rounded-full overflow-hidden border border-[#27272a]">
                         <div
                           className={`h-full transition-all duration-300 rounded-full ${
-                            active >= conc
+                            (server.currentWorkload !== undefined ? server.currentWorkload : active) >= maxCap
                               ? 'bg-red-500'
-                              : active > 0
-                              ? 'bg-emerald-500'
+                              : (server.currentWorkload !== undefined ? server.currentWorkload : active) > 0
+                              ? 'bg-amber-400'
                               : 'bg-zinc-700'
                           }`}
-                          style={{ width: `${Math.min(100, (active / conc) * 100)}%` }}
+                          style={{ width: `${Math.min(100, (((server.currentWorkload !== undefined ? server.currentWorkload : active)) / maxCap) * 100)}%` }}
                         />
                       </div>
                     </div>

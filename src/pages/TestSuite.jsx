@@ -38,7 +38,7 @@ export default function TestSuite() {
             Deterministic Algorithm & Lifecycle Test Suite
           </h2>
           <p className="text-xs text-[#a1a1aa] mt-0.5">
-            14 automated test assertions verifying rotation rules, weight distribution, admission limits, and lifecycle guards.
+            {testReport.total} automated test assertions verifying rotation rules, weight distribution, admission limits, duplicate prevention, and lifecycle guards.
           </p>
         </div>
 
@@ -48,7 +48,7 @@ export default function TestSuite() {
           className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-black bg-[#f59e0b] hover:bg-[#fbbf24] rounded-md transition-colors disabled:opacity-50 cursor-pointer shadow-xs self-start sm:self-auto"
         >
           <Play className="w-3.5 h-3.5" />
-          <span>{isRunning ? 'Executing Tests...' : 'Run All 14 Tests'}</span>
+          <span>{isRunning ? 'Executing Tests...' : `Run All ${testReport.total} Tests`}</span>
         </button>
       </div>
 
