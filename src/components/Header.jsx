@@ -22,9 +22,7 @@ export default function Header({ onToggleMobileNav, onOpenStudio }) {
     selectedAlgorithm,
     setSelectedAlgorithm,
     loadDemoScenario,
-    sendOneRequest,
-    clients,
-    resetSimulation
+    socketConnected
   } = useSimulation();
 
   const [isDemoConfirmOpen, setIsDemoConfirmOpen] = useState(false);
@@ -34,13 +32,6 @@ export default function Header({ onToggleMobileNav, onOpenStudio }) {
     loadDemoScenario();
     setDemoLoadedNotification(true);
     setTimeout(() => setDemoLoadedNotification(false), 3000);
-  };
-
-  const handleQuickSend = () => {
-    const activeClient = clients.find(c => c.enabled) || clients[0];
-    if (activeClient) {
-      sendOneRequest({ clientId: activeClient.id });
-    }
   };
 
   const statusColors = {
@@ -72,6 +63,17 @@ export default function Header({ onToggleMobileNav, onOpenStudio }) {
                 <span className={`w-1.5 h-1.5 rounded-full ${simulationStatus === 'running' ? 'bg-emerald-400 animate-pulse' : simulationStatus === 'paused' ? 'bg-amber-400' : 'bg-zinc-500'}`} />
                 {simulationStatus}
               </span>
+              <span
+                className={`text-[11px] font-mono px-2 py-0.5 rounded border flex items-center gap-1.5 ${
+                  socketConnected
+                    ? 'bg-emerald-950/60 border-emerald-800 text-emerald-400'
+                    : 'bg-amber-950/60 border-amber-800 text-amber-400'
+                }`}
+                title={socketConnected ? 'Connected to Socket.IO backend for real-time live events' : 'Connecting to Socket.IO...'}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${socketConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+                <span className="hidden md:inline">{socketConnected ? 'Socket.IO Live' : 'Reconnecting...'}</span>
+              </span>
             </div>
           </div>
         </div>
@@ -96,27 +98,18 @@ export default function Header({ onToggleMobileNav, onOpenStudio }) {
         <div className="flex items-center gap-2">
           {demoLoadedNotification && (
             <span className="text-xs text-emerald-400 bg-emerald-950/60 border border-emerald-800 px-2 py-0.5 rounded animate-fade-in hidden sm:inline">
-              Demo scenario loaded!
+              Topology reset!
             </span>
           )}
 
           <button
             onClick={() => setIsDemoConfirmOpen(true)}
             className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-amber-300 bg-amber-950/40 hover:bg-amber-950/70 border border-amber-700/60 rounded-md transition-colors"
-            title="Load standard 5 clients, 3 servers demo setup"
+            title="Reset server topology to 3 standard servers (Weights 5, 3, 2)"
           >
             <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-            <span className="hidden sm:inline">Load Demo Scenario</span>
-            <span className="sm:hidden">Demo</span>
-          </button>
-
-          <button
-            onClick={handleQuickSend}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-zinc-200 bg-[#27272a] hover:bg-[#333338] border border-[#3f3f46] rounded-md transition-colors"
-            title="Dispatch 1 simulated request"
-          >
-            <Zap className="w-3.5 h-3.5 text-amber-400" />
-            <span className="hidden sm:inline">Send Request</span>
+            <span className="hidden sm:inline">Reset Fleet</span>
+            <span className="sm:hidden">Reset</span>
           </button>
 
           <button
@@ -130,14 +123,14 @@ export default function Header({ onToggleMobileNav, onOpenStudio }) {
         </div>
       </header>
 
-      {/* Confirmation Modal for Demo Scenario */}
+      {/* Confirmation Modal for Fleet Reset */}
       <ConfirmModal
         isOpen={isDemoConfirmOpen}
         onClose={() => setIsDemoConfirmOpen(false)}
         onConfirm={handleConfirmDemo}
-        title="Load Demo Scenario?"
-        message="This will reset the simulator to the standard educational demo scenario (5 clients, 3 servers with weights 5, 3, 2, and default 15 requests workload). Current transient active requests will be cleared."
-        confirmText="Load Scenario"
+        title="Reset Server Fleet?"
+        message="This will reset the simulator server topology to the standard educational demo setup: Server A (weight 5, capacity 10), Server B (weight 3, capacity 6), and Server C (weight 2, capacity 4). Inactive or queued requests will be cleared."
+        confirmText="Reset Fleet"
       />
     </>
   );

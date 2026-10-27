@@ -7,6 +7,8 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
+import axios from 'axios';
+import { io } from 'socket.io-client';
 import {
   Send,
   CheckCircle2,
@@ -26,7 +28,30 @@ import {
   Info
 } from 'lucide-react';
 
-const API_BASE = window.location.port === '5174' ? 'http://localhost:3000/api' : '/api';
+export const getCandidateApiBases = () => {
+  const candidates = [];
+  if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) {
+    candidates.push(import.meta.env.VITE_API_URL.replace(/\/$/, ''));
+  }
+  // 1. Relative /api routes through Vite dev proxy on port 5174 or same origin
+  candidates.push('/api');
+  // 2. Direct connection to host machine on port 3000
+  if (typeof window !== 'undefined' && window.location?.hostname) {
+    candidates.push(`${window.location.protocol}//${window.location.hostname}:3000/api`);
+  }
+  candidates.push('http://localhost:3000/api');
+  return [...new Set(candidates.filter(Boolean))];
+};
+
+export const getLoadBalancerPortalUrl = () => {
+  if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_LB_PORTAL_URL) {
+    return import.meta.env.VITE_LB_PORTAL_URL;
+  }
+  if (typeof window !== 'undefined' && window.location?.hostname) {
+    return `${window.location.protocol}//${window.location.hostname}:3000`;
+  }
+  return 'http://localhost:3000';
+};
 
 const PRESET_USERS = [
   { id: 'usr-1', name: 'Alex Rivera (Data Analyst)', department: 'Analytics' },
@@ -46,6 +71,14 @@ const REQUEST_TYPES = [
 ];
 
 export default function App() {
+  // Configured / Detected API Base
+  const [activeApiBase, setActiveApiBase] = useState(() => {
+    if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) {
+      return import.meta.env.VITE_API_URL.replace(/\/$/, '');
+    }
+    return '/api';
+  });
+
   // Form State
   const [selectedUserPreset, setSelectedUserPreset] = useState('usr-1');
   const [userName, setUserName] = useState('Alex Rivera');
@@ -69,30 +102,122 @@ export default function App() {
     }
   });
 
-  // Backend Health
-  const [backendStatus, setBackendStatus] = useState({ connected: false, checking: true, currentAlgorithm: '' });
+  // Backend Health Monitoring
+  const [backendStatus, setBackendStatus] = useState({
+    connected: false,
+    checking: true,
+    currentAlgorithm: '',
+    serverCount: 0,
+    activeRequests: 0,
+    queuedRequests: 0,
+    activeApiBase: '/api',
+    lastChecked: null,
+    errorMessage: null
+  });
   const [submitError, setSubmitError] = useState(null);
+  const [socketLive, setSocketLive] = useState(false);
 
   // Poller Ref
   const pollTimerRef = useRef(null);
 
-  // Check Backend Status on mount
-  const checkBackend = async () => {
+  // Socket.IO Real-Time Listener for instant request completion pushes
+  useEffect(() => {
+    let socket;
     try {
-      const res = await fetch(`${API_BASE}/health`, { signal: AbortSignal.timeout(3000) });
-      if (res.ok) {
-        const data = await res.json();
-        setBackendStatus({
-          connected: true,
-          checking: false,
-          currentAlgorithm: data.selectedAlgorithm || 'ROUND_ROBIN',
-          serverCount: data.serversCount || 0
+      const socketHost = typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.hostname}:3000` : 'http://localhost:3000';
+      socket = io(socketHost, {
+        transports: ['websocket', 'polling'],
+        reconnection: true,
+        reconnectionAttempts: 25,
+        reconnectionDelay: 1000
+      });
+
+      socket.on('connect', () => {
+        setSocketLive(true);
+      });
+
+      socket.on('disconnect', () => {
+        setSocketLive(false);
+      });
+
+      socket.on('request:completed', (data) => {
+        if (!data || !data.requestId) return;
+        setTrackedRequest(prev => {
+          if (prev && prev.id === data.requestId) {
+            return { ...prev, ...data.request, status: 'completed' };
+          }
+          return prev;
         });
-      } else {
-        setBackendStatus({ connected: false, checking: false, currentAlgorithm: '' });
-      }
+        setSubmissionHistory(prev =>
+          prev.map(h => (h.id === data.requestId ? { ...h, ...data.request, status: 'completed' } : h))
+        );
+      });
+
+      socket.on('request:assigned', (data) => {
+        if (!data || !data.request) return;
+        setTrackedRequest(prev => {
+          if (prev && prev.id === data.request.id) {
+            return { ...prev, ...data.request };
+          }
+          return prev;
+        });
+      });
     } catch (err) {
-      setBackendStatus({ connected: false, checking: false, currentAlgorithm: '' });
+      console.warn('User portal Socket.IO setup error:', err);
+    }
+
+    return () => {
+      if (socket) socket.disconnect();
+    };
+  }, []);
+
+  // Check Backend Status with candidate fallback using Axios
+  const checkBackend = async () => {
+    setBackendStatus(prev => ({ ...prev, checking: true, errorMessage: null }));
+    const candidates = getCandidateApiBases();
+    const ordered = [activeApiBase, ...candidates.filter(c => c !== activeApiBase)];
+
+    let connected = false;
+    for (const base of ordered) {
+      try {
+        const res = await axios.get(`${base}/health`, {
+          timeout: 2500,
+          headers: { 'Accept': 'application/json' }
+        });
+        if (res.status === 200 && res.data) {
+          const data = res.data;
+          setActiveApiBase(base);
+          setBackendStatus({
+            connected: true,
+            checking: false,
+            currentAlgorithm: data.selectedAlgorithm || 'ROUND_ROBIN',
+            serverCount: data.serversCount || 0,
+            activeRequests: data.activeRequestsCount || 0,
+            queuedRequests: data.queuedRequestsCount || 0,
+            activeApiBase: base,
+            lastChecked: Date.now(),
+            errorMessage: null
+          });
+          connected = true;
+          break;
+        }
+      } catch (err) {
+        // try next candidate
+      }
+    }
+
+    if (!connected) {
+      setBackendStatus({
+        connected: false,
+        checking: false,
+        currentAlgorithm: '',
+        serverCount: 0,
+        activeRequests: 0,
+        queuedRequests: 0,
+        activeApiBase,
+        lastChecked: Date.now(),
+        errorMessage: 'Unable to reach Load Balancer API.'
+      });
     }
   };
 
@@ -139,61 +264,76 @@ export default function App() {
 
     const pollStatus = async () => {
       try {
-        const res = await fetch(`${API_BASE}/requests/${trackedRequest.id}`, { credentials: 'omit' });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.request) {
-            setTrackedRequest(data.request);
-            // Update item in history
-            setSubmissionHistory(prev =>
-              prev.map(h => (h.id === data.request.id ? { ...h, ...data.request } : h))
-            );
-          }
+        const res = await axios.get(`${activeApiBase}/requests/${trackedRequest.id}`, { timeout: 2000 });
+        if (res.status === 200 && res.data?.request) {
+          const req = res.data.request;
+          setTrackedRequest(req);
+          // Update item in history
+          setSubmissionHistory(prev =>
+            prev.map(h => (h.id === req.id ? { ...h, ...req } : h))
+          );
         }
       } catch (err) {
-        console.error('Status poll error:', err);
+        // quiet error on poll
       }
     };
 
     pollTimerRef.current = setInterval(pollStatus, 800);
     return () => clearInterval(pollTimerRef.current);
-  }, [trackedRequest]);
+  }, [trackedRequest, activeApiBase]);
 
-  // Handle Form Submission: STRICT 1 Form Submit = Exactly 1 Request
+  // Handle Form Submission: STRICT 1 Form Submit = Exactly 1 Request via Axios
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (isSubmitting) return; // Prevent double click
+    if (isSubmitting || !backendStatus.connected || backendStatus.checking) return;
 
     setSubmitError(null);
+
+    // Form validation
+    const trimmedName = userName.trim();
+    const trimmedTitle = requestTitle.trim();
+    if (!trimmedName) {
+      setSubmitError('Please enter a User Full Name.');
+      return;
+    }
+    if (!trimmedTitle) {
+      setSubmitError('Please enter a Request Title.');
+      return;
+    }
+    const numUnits = Number(workloadUnits);
+    if (isNaN(numUnits) || numUnits < 1 || numUnits > 5) {
+      setSubmitError('Workload units must be between 1 and 5.');
+      return;
+    }
+
     setIsSubmitting(true);
 
     const idempotencyKey = `idemp-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 
     const payload = {
-      clientName: userName.trim() || 'Anonymous User',
+      clientName: trimmedName,
       department: department.trim() || 'General',
       requestType,
-      title: requestTitle.trim() || 'Custom Task Request',
+      title: trimmedTitle,
       description: requestPayload.trim() || 'Standard operational workload payload.',
-      workloadUnits: Number(workloadUnits) || 1,
+      workloadUnits: numUnits,
       priority,
       idempotencyKey
     };
 
     try {
-      const response = await fetch(`${API_BASE}/requests`, {
-        method: 'POST',
+      const response = await axios.post(`${activeApiBase}/requests`, payload, {
         headers: {
           'Content-Type': 'application/json',
           'X-Idempotency-Key': idempotencyKey
         },
-        body: JSON.stringify(payload)
+        timeout: 8000
       });
 
-      const result = await response.json();
+      const result = response.data;
 
-      if (!response.ok || !result.success) {
-        throw new Error(result.error || result.message || 'Request routing failed');
+      if (!result || !result.success) {
+        throw new Error(result?.error || result?.message || 'Request routing failed');
       }
 
       const generatedRequest = result.request;
@@ -204,7 +344,10 @@ export default function App() {
       setSubmissionHistory(prev => [generatedRequest, ...prev.slice(0, 19)]);
     } catch (err) {
       console.error('Failed to submit user request:', err);
-      setSubmitError(err.message || 'Unable to communicate with Load Balancer API.');
+      const errMsg = err.response?.data?.message || err.response?.data?.error || err.message || 'Unable to communicate with Load Balancer API.';
+      setSubmitError(errMsg);
+      // After a failed submission, recheck connection immediately
+      checkBackend();
     } finally {
       setIsSubmitting(false);
     }
@@ -228,7 +371,7 @@ export default function App() {
           <div>
             <h1 className="text-base font-semibold text-white tracking-tight flex items-center gap-2">
               Enterprise Client Request Portal
-              <span className="text-xs font-normal px-2 py-0.5 rounded bg-blue-500/15 text-blue-400 border border-blue-500/30">
+              <span className="text-xs font-normal px-2 py-0.5 rounded bg-blue-500/15 text-blue-400 border border-blue-500/30 font-mono">
                 Port 5174
               </span>
             </h1>
@@ -238,24 +381,54 @@ export default function App() {
           </div>
         </div>
 
-        {/* Backend Connectivity Status */}
-        <div className="flex items-center gap-3">
+        {/* Backend & Socket.IO Connectivity Status */}
+        <div className="flex items-center gap-2 sm:gap-3">
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-[#1e1e1e] border border-[#333333] text-xs">
-            <span
-              className={`w-2 h-2 rounded-full ${
-                backendStatus.connected ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'
-              }`}
-            />
-            <span className="text-[#a0a0a0]">
-              Load Balancer API:
-            </span>
-            <span className={backendStatus.connected ? 'text-emerald-400 font-medium' : 'text-rose-400 font-medium'}>
-              {backendStatus.connected ? 'Connected (Port 3000)' : 'Unreachable'}
-            </span>
+            {backendStatus.checking ? (
+              <>
+                <RefreshCw size={13} className="text-amber-400 animate-spin" />
+                <span className="text-[#a0a0a0]">Load Balancer API:</span>
+                <span className="text-amber-400 font-medium">Checking Connection...</span>
+              </>
+            ) : backendStatus.connected ? (
+              <>
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="text-[#a0a0a0]">Load Balancer API:</span>
+                <span className="text-emerald-400 font-medium">
+                  Connected ({backendStatus.serverCount} Servers)
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="w-2 h-2 rounded-full bg-rose-500" />
+                <span className="text-[#a0a0a0]">Load Balancer API:</span>
+                <span className="text-rose-400 font-medium">API Unreachable</span>
+                <button
+                  type="button"
+                  onClick={checkBackend}
+                  title="Retry connection"
+                  className="ml-1 text-[11px] text-amber-400 hover:text-amber-300 underline font-mono cursor-pointer"
+                >
+                  Retry
+                </button>
+              </>
+            )}
+          </div>
+
+          <div
+            className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border text-xs font-mono ${
+              socketLive
+                ? 'bg-emerald-950/60 border-emerald-800 text-emerald-400'
+                : 'bg-zinc-800 border-zinc-700 text-zinc-400'
+            }`}
+            title={socketLive ? 'Connected to Socket.IO real-time stream' : 'Socket.IO offline (using polling)'}
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${socketLive ? 'bg-emerald-400 animate-pulse' : 'bg-zinc-500'}`} />
+            <span>{socketLive ? 'Real-Time Sync' : 'Polling Mode'}</span>
           </div>
 
           <a
-            href="http://localhost:3000"
+            href={getLoadBalancerPortalUrl()}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-1.5 text-xs text-amber-400 hover:text-amber-300 bg-amber-500/10 border border-amber-500/30 hover:border-amber-500/50 px-3 py-1.5 rounded-md transition-colors"
@@ -463,10 +636,12 @@ export default function App() {
 
                 <button
                   type="submit"
-                  disabled={isSubmitting || !backendStatus.connected}
+                  disabled={isSubmitting || !backendStatus.connected || backendStatus.checking}
                   className={`w-full sm:w-auto px-6 py-2.5 rounded-lg text-xs font-medium flex items-center justify-center gap-2 transition-all shadow-md ${
                     isSubmitting
                       ? 'bg-amber-500/40 text-amber-200 cursor-not-allowed'
+                      : backendStatus.checking
+                      ? 'bg-zinc-800 text-amber-400/80 cursor-wait border border-zinc-700'
                       : !backendStatus.connected
                       ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700'
                       : 'bg-amber-500 hover:bg-amber-400 text-zinc-950 font-semibold active:scale-[0.98]'
@@ -476,6 +651,16 @@ export default function App() {
                     <>
                       <RefreshCw size={14} className="animate-spin" />
                       <span>Dispatching Request...</span>
+                    </>
+                  ) : backendStatus.checking ? (
+                    <>
+                      <RefreshCw size={14} className="animate-spin" />
+                      <span>Checking Connection...</span>
+                    </>
+                  ) : !backendStatus.connected ? (
+                    <>
+                      <XCircle size={14} className="text-rose-400" />
+                      <span>API Unreachable</span>
                     </>
                   ) : (
                     <>

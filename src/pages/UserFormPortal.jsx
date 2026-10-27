@@ -152,7 +152,7 @@ export default function UserFormPortal() {
 
           <div className="flex items-center gap-3">
             <a
-              href="http://localhost:5174"
+              href={import.meta.env?.VITE_USER_APP_URL || (typeof window !== 'undefined' && window.location?.hostname ? `${window.location.protocol}//${window.location.hostname}:5174` : 'http://localhost:5174')}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#1e1e1e] border border-[#3c3c3c] text-xs text-amber-400 hover:text-amber-300 hover:border-amber-500/50 transition-colors"

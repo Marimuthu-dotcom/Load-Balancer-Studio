@@ -10,7 +10,6 @@ import Header from './components/Header.jsx';
 
 import Dashboard from './pages/Dashboard.jsx';
 import SimulationStudio from './pages/SimulationStudio.jsx';
-import ClientManagement from './pages/ClientManagement.jsx';
 import ServerManagement from './pages/ServerManagement.jsx';
 import RequestHistory from './pages/RequestHistory.jsx';
 import AlgorithmComparison from './pages/AlgorithmComparison.jsx';
@@ -30,8 +29,6 @@ export default function App() {
         return <UserFormPortal />;
       case 'studio':
         return <SimulationStudio />;
-      case 'clients':
-        return <ClientManagement />;
       case 'servers':
         return <ServerManagement />;
       case 'history':

@@ -12,6 +12,8 @@
  */
 
 import express from 'express';
+import http from 'http';
+import { Server as SocketIOServer } from 'socket.io';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import fs from 'fs';
@@ -22,6 +24,15 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+const httpServer = http.createServer(app);
+const io = new SocketIOServer(httpServer, {
+  cors: {
+    origin: '*',
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Idempotency-Key']
+  }
+});
+
 app.use(express.json());
 
 // 1. CORS Headers for Cross-Origin Localhost Communication (Section 4 & 17)
@@ -114,6 +125,40 @@ setInterval(() => {
   }
 }, 60000);
 
+function getFleetStats() {
+  return {
+    totalServers: state.servers.length,
+    enabledServers: state.servers.filter(s => s.enabled && !s.paused).length,
+    autoScaledServers: state.servers.filter(s => s.isAutoScaled).length,
+    totalRequests: state.requests.length,
+    pendingRequests: state.queuedRequests.length,
+    activeRequests: state.activeRequests.length,
+    completedRequests: state.servers.reduce((acc, s) => acc + (s.completedRequests || 0), 0),
+    failedRequests: state.servers.reduce((acc, s) => acc + (s.failedRequests || 0), 0),
+    currentFleetWorkload: state.servers.reduce((acc, s) => acc + (s.currentWorkload || 0), 0),
+    totalFleetCapacity: state.servers.reduce((acc, s) => acc + (s.maxCapacity || 0), 0)
+  };
+}
+
+function getFullStatePayload() {
+  return {
+    servers: state.servers,
+    requests: state.requests.slice(0, 200),
+    queuedRequests: state.queuedRequests,
+    activeRequests: state.activeRequests,
+    selectedAlgorithm: state.selectedAlgorithm,
+    settings: state.settings,
+    scalingEvents: state.scalingEvents,
+    latestDecision: state.latestDecision,
+    stats: getFleetStats()
+  };
+}
+
+// Socket.IO Connection Event: Deliver initial snapshot
+io.on('connection', (socket) => {
+  socket.emit('state:init', getFullStatePayload());
+});
+
 /**
  * Check queued requests and dispatch as soon as any server has freed up capacity
  */
@@ -132,6 +177,14 @@ function tryProcessQueue() {
       const server = state.servers.find(s => s.id === decision.selectedServer.id);
       if (server) {
         assignAndProcessRequest(queuedReq, server, decision.explanation);
+
+        // Notify via Socket.IO
+        io.emit('request:dequeued', {
+          request: queuedReq,
+          server: { id: server.id, name: server.name },
+          queuedRequests: state.queuedRequests,
+          stats: getFleetStats()
+        });
       }
     }
   }
@@ -160,6 +213,23 @@ function assignAndProcessRequest(requestRecord, server, explanation) {
     startTime: Date.now()
   });
 
+  // Emit real-time assigned event via Socket.IO immediately
+  io.emit('request:assigned', {
+    request: requestRecord,
+    server: {
+      id: server.id,
+      name: server.name,
+      currentWorkload: server.currentWorkload,
+      maxCapacity: server.maxCapacity,
+      activeRequests: server.activeRequests,
+      concurrencyLimit: server.concurrencyLimit,
+      totalAssigned: server.totalAssigned
+    },
+    servers: state.servers,
+    latestDecision: state.latestDecision,
+    stats: getFleetStats()
+  });
+
   const speed = Math.max(0.1, state.settings.simulationSpeed || 1);
   const effectiveDuration = Math.max(200, Math.round(requestRecord.durationMs / speed));
 
@@ -175,6 +245,23 @@ function assignAndProcessRequest(requestRecord, server, explanation) {
     // Remove from activeRequests
     state.activeRequests = state.activeRequests.filter(r => r.id !== requestRecord.id);
 
+    // Emit real-time completion event via Socket.IO
+    io.emit('request:completed', {
+      requestId: requestRecord.id,
+      request: requestRecord,
+      server: {
+        id: server.id,
+        name: server.name,
+        currentWorkload: server.currentWorkload,
+        maxCapacity: server.maxCapacity,
+        activeRequests: server.activeRequests,
+        concurrencyLimit: server.concurrencyLimit,
+        completedRequests: server.completedRequests
+      },
+      servers: state.servers,
+      stats: getFleetStats()
+    });
+
     // Re-check queue now that capacity and a connection slot are released!
     tryProcessQueue();
   }, effectiveDuration);
@@ -184,32 +271,21 @@ function assignAndProcessRequest(requestRecord, server, explanation) {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', serverTime: new Date().toISOString() });
+  res.json({
+    status: 'ok',
+    serverTime: new Date().toISOString(),
+    selectedAlgorithm: state.selectedAlgorithm,
+    serversCount: state.servers.length,
+    activeRequestsCount: state.activeRequests.length,
+    queuedRequestsCount: state.queuedRequests.length
+  });
 });
 
 // Full state for Load Balancer Dashboard & Visualizer
 app.get('/api/state', (req, res) => {
   res.json({
-    servers: state.servers,
-    requests: state.requests.slice(0, 200),
-    queuedRequests: state.queuedRequests,
-    activeRequests: state.activeRequests,
-    selectedAlgorithm: state.selectedAlgorithm,
-    settings: state.settings,
-    scalingEvents: state.scalingEvents,
-    latestDecision: state.latestDecision,
-    stats: {
-      totalServers: state.servers.length,
-      enabledServers: state.servers.filter(s => s.enabled && !s.paused).length,
-      autoScaledServers: state.servers.filter(s => s.isAutoScaled).length,
-      totalRequests: state.requests.length,
-      pendingRequests: state.queuedRequests.length,
-      activeRequests: state.activeRequests.length,
-      completedRequests: state.servers.reduce((acc, s) => acc + (s.completedRequests || 0), 0),
-      failedRequests: state.servers.reduce((acc, s) => acc + (s.failedRequests || 0), 0),
-      currentFleetWorkload: state.servers.reduce((acc, s) => acc + (s.currentWorkload || 0), 0),
-      totalFleetCapacity: state.servers.reduce((acc, s) => acc + (s.maxCapacity || 0), 0)
-    }
+    success: true,
+    ...getFullStatePayload()
   });
 });
 
@@ -333,6 +409,14 @@ app.post('/api/requests', (req, res) => {
       };
       state.scalingEvents.unshift(scaleEvent);
 
+      // Emit auto-scale event via Socket.IO
+      io.emit('server:scaled', {
+        server: newSimulatedServer,
+        event: scaleEvent,
+        servers: state.servers,
+        stats: getFleetStats()
+      });
+
       // Re-evaluate algorithm with the expanded fleet
       decision = routeRequest(state.selectedAlgorithm, state.servers, undefined, numWorkload);
       selectedServer = decision.selectedServer || newSimulatedServer;
@@ -384,6 +468,13 @@ app.post('/api/requests', (req, res) => {
       newRequestRecord.decisionExplanation = `Request queued: All servers are at full capacity or concurrency limit. Awaiting available resources.`;
       state.queuedRequests.push(newRequestRecord);
 
+      // Emit queue event via Socket.IO
+      io.emit('request:queued', {
+        request: newRequestRecord,
+        queuedRequests: state.queuedRequests,
+        stats: getFleetStats()
+      });
+
       return res.status(202).json({
         success: true,
         status: 'queued',
@@ -394,6 +485,12 @@ app.post('/api/requests', (req, res) => {
       newRequestRecord.status = 'rejected';
       newRequestRecord.decisionExplanation = `Request rejected: Maximum capacity or concurrency limit exceeded across all available servers.`;
       newRequestRecord.completedAt = Date.now();
+
+      // Emit rejection event via Socket.IO
+      io.emit('request:rejected', {
+        request: newRequestRecord,
+        stats: getFleetStats()
+      });
 
       return res.status(503).json({
         success: false,
@@ -445,6 +542,7 @@ app.post('/api/servers', (req, res) => {
   };
 
   state.servers.push(newServer);
+  io.emit('servers:update', { servers: state.servers, stats: getFleetStats() });
   res.status(201).json({ success: true, server: newServer });
 });
 
@@ -461,6 +559,7 @@ app.put('/api/servers/:id', (req, res) => {
   if (enabled !== undefined) server.enabled = Boolean(enabled);
   if (paused !== undefined) server.paused = Boolean(paused);
 
+  io.emit('servers:update', { servers: state.servers, stats: getFleetStats() });
   res.json({ success: true, server });
 });
 
@@ -474,6 +573,7 @@ app.delete('/api/servers/:id', (req, res) => {
   const removed = state.servers.splice(index, 1)[0];
   state.activeRequests = state.activeRequests.filter(r => r.serverId !== removed.id);
 
+  io.emit('servers:update', { servers: state.servers, stats: getFleetStats() });
   res.json({ success: true, deleted: removed });
 });
 
@@ -482,6 +582,7 @@ app.post('/api/algorithm', (req, res) => {
   const { algorithm } = req.body;
   if (algorithm && ALGORITHM_INFO[algorithm]) {
     state.selectedAlgorithm = algorithm;
+    io.emit('algorithm:changed', { selectedAlgorithm: state.selectedAlgorithm });
     return res.json({ success: true, selectedAlgorithm: state.selectedAlgorithm });
   }
   res.status(400).json({ error: 'Invalid algorithm key.' });
@@ -496,6 +597,7 @@ app.post('/api/settings', (req, res) => {
   if (autoScaleOnOverload !== undefined) state.settings.autoScaleOnOverload = Boolean(autoScaleOnOverload);
   if (maxAutoScaledServers !== undefined) state.settings.maxAutoScaledServers = Number(maxAutoScaledServers);
 
+  io.emit('settings:update', { settings: state.settings });
   res.json({ success: true, settings: state.settings });
 });
 
@@ -512,6 +614,7 @@ app.post('/api/reset', (req, res) => {
     s.completedRequests = 0;
     s.failedRequests = 0;
   });
+  io.emit('state:reset', getFullStatePayload());
   res.json({ success: true, message: 'Simulation counters reset successfully.' });
 });
 
@@ -529,6 +632,7 @@ app.post('/api/demo-scenario', (req, res) => {
   state.activeRequests = [];
   state.scalingEvents = [];
   state.latestDecision = null;
+  io.emit('state:reset', getFullStatePayload());
   res.json({ success: true, servers: state.servers });
 });
 
@@ -540,6 +644,7 @@ app.post('/api/clear-all', (req, res) => {
   state.activeRequests = [];
   state.scalingEvents = [];
   state.latestDecision = null;
+  io.emit('state:reset', getFullStatePayload());
   res.json({ success: true, message: 'All simulator data cleared.' });
 });
 
@@ -562,8 +667,8 @@ async function startServer() {
     app.use(vite.middlewares);
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[LoadBalancer] Server running on port ${PORT}`);
+  httpServer.listen(PORT, '0.0.0.0', () => {
+    console.log(`[LoadBalancer] Server running with Socket.IO on port ${PORT}`);
     console.log(`[LoadBalancer] API Ready at http://localhost:${PORT}/api/state`);
   });
 }

@@ -7,7 +7,6 @@ import React from 'react';
 import {
   LayoutDashboard,
   Radio,
-  Users,
   Server,
   FileText,
   BarChart3,
@@ -21,7 +20,6 @@ export default function Sidebar({ currentTab, setCurrentTab, isMobileOpen, setIs
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'userForm', label: 'User Request Form', icon: FileText, highlight: true },
     { id: 'studio', label: 'Live Simulation', icon: Radio },
-    { id: 'clients', label: 'Client Management', icon: Users },
     { id: 'servers', label: 'Server Management', icon: Server },
     { id: 'history', label: 'Request History', icon: FileText },
     { id: 'algorithms', label: 'Algorithms & Compare', icon: BarChart3 },
@@ -118,7 +116,7 @@ export default function Sidebar({ currentTab, setCurrentTab, isMobileOpen, setIs
             <div className="flex items-center justify-between text-[#858585]">
               <span>User App</span>
               <a
-                href="http://localhost:5174"
+                href={import.meta.env?.VITE_USER_APP_URL || (typeof window !== 'undefined' && window.location?.hostname ? `${window.location.protocol}//${window.location.hostname}:5174` : 'http://localhost:5174')}
                 target="_blank"
                 rel="noreferrer"
                 className="text-[#f59e0b] hover:underline font-mono"

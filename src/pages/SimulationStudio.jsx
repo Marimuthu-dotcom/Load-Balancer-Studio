@@ -106,7 +106,7 @@ export default function SimulationStudio() {
   const totalPlannedRequests = selectedClientIds.length * requestsPerClient;
 
   // Empty fleet state: Guide the user to deploy their fleet on demand
-  if (servers.length === 0 || clients.length === 0) {
+  if (servers.length === 0) {
     return (
       <div className="space-y-6 max-w-4xl mx-auto">
         <div className="p-8 bg-[#252526] border border-[#2d2d30] rounded-xl text-center space-y-6">
@@ -119,66 +119,43 @@ export default function SimulationStudio() {
               Initialize Simulator Fleet
             </h2>
             <p className="text-xs text-[#a1a1aa] leading-relaxed">
-              No default static clients or servers are pre-loaded. Configure your custom network topology below to start the interactive demo.
+              No default static servers are currently active. Configure your initial server fleet below to monitor incoming traffic.
             </p>
           </div>
 
           <div className="p-6 bg-[#18181b] border border-[#2d2d30] rounded-lg max-w-lg mx-auto text-left space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-medium text-[#cccccc] mb-1.5">
-                  Initial Server Fleet Count
-                </label>
-                <div className="flex items-center gap-1.5">
-                  {[2, 3, 4].map(n => (
-                    <button
-                      key={n}
-                      onClick={() => setSetupServerCount(n)}
-                      className={`flex-1 py-1.5 text-xs font-mono rounded border transition-colors ${
-                        setupServerCount === n
-                          ? 'bg-[#f59e0b] text-black font-bold border-[#f59e0b]'
-                          : 'bg-[#252526] text-[#cccccc] border-[#3e3e42] hover:bg-[#2d2d30]'
-                      }`}
-                    >
-                      {n} Servers
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-[#cccccc] mb-1.5">
-                  Initial Client Nodes Count
-                </label>
-                <div className="flex items-center gap-1.5">
-                  {[2, 3, 5].map(n => (
-                    <button
-                      key={n}
-                      onClick={() => setSetupClientCount(n)}
-                      className={`flex-1 py-1.5 text-xs font-mono rounded border transition-colors ${
-                        setupClientCount === n
-                          ? 'bg-[#f59e0b] text-black font-bold border-[#f59e0b]'
-                          : 'bg-[#252526] text-[#cccccc] border-[#3e3e42] hover:bg-[#2d2d30]'
-                      }`}
-                    >
-                      {n} Clients
-                    </button>
-                  ))}
-                </div>
+            <div>
+              <label className="block text-xs font-medium text-[#cccccc] mb-1.5">
+                Initial Server Fleet Count
+              </label>
+              <div className="flex items-center gap-1.5">
+                {[2, 3, 4].map(n => (
+                  <button
+                    key={n}
+                    onClick={() => setSetupServerCount(n)}
+                    className={`flex-1 py-1.5 text-xs font-mono rounded border transition-colors ${
+                      setupServerCount === n
+                        ? 'bg-[#f59e0b] text-black font-bold border-[#f59e0b]'
+                        : 'bg-[#252526] text-[#cccccc] border-[#3e3e42] hover:bg-[#2d2d30]'
+                    }`}
+                  >
+                    {n} Servers
+                  </button>
+                ))}
               </div>
             </div>
 
             <button
-              onClick={() => initializeFleet({ serverCount: setupServerCount, clientCount: setupClientCount })}
+              onClick={() => initializeFleet({ serverCount: setupServerCount, clientCount: 3 })}
               className="w-full py-2.5 px-4 text-xs font-bold text-black bg-[#f59e0b] hover:bg-[#fbbf24] rounded-md transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
             >
               <Sparkles className="w-4 h-4" />
-              <span>Deploy {setupServerCount} Servers & {setupClientCount} Clients</span>
+              <span>Deploy {setupServerCount} Servers</span>
             </button>
           </div>
 
           <p className="text-[11px] text-[#71717a]">
-            You can also add custom servers or clients individually from the Server and Client Management tabs.
+            You can configure servers from Server Management and submit client traffic from the User Portal (port 5174).
           </p>
         </div>
       </div>

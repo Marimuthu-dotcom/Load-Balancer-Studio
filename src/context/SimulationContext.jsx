@@ -30,6 +30,7 @@ import {
   ALGORITHM_INFO,
   globalAlgorithmState
 } from '../engine/algorithms.js';
+import { io } from 'socket.io-client';
 import {
   fetchState,
   submitRequestToApi,
@@ -54,6 +55,7 @@ export function SimulationProvider({ children }) {
   const [queuedRequests, setQueuedRequests] = useState([]);
   const [latestDecision, setLatestDecision] = useState(null);
   const [autoScaleAlert, setAutoScaleAlert] = useState(null); // Notifications when elastic scaling spawns a server
+  const [socketConnected, setSocketConnected] = useState(false);
 
   // Stale-callback protection generation counter
   const runGenerationRef = useRef(1);
@@ -577,10 +579,13 @@ export function SimulationProvider({ children }) {
   /**
    * Sync with authoritative backend API (supports User Form submissions from port 5174)
    */
+  /**
+   * Sync with authoritative backend API (initial load & reconnection reconciliation)
+   */
   const syncFromBackend = useCallback(async () => {
     try {
       const data = await fetchState();
-      if (data && data.success) {
+      if (data && (data.success !== false && data.servers)) {
         if (Array.isArray(data.servers)) setServers(data.servers);
         if (Array.isArray(data.activeRequests)) setActiveRequests(data.activeRequests);
         if (Array.isArray(data.queuedRequests)) setQueuedRequests(data.queuedRequests);
@@ -594,10 +599,150 @@ export function SimulationProvider({ children }) {
     }
   }, []);
 
+  /**
+   * Real-Time Socket.IO Integration
+   * Listens for push events emitted when User Portal dispatches requests
+   */
   useEffect(() => {
+    let socket;
+    try {
+      const socketUrl = import.meta.env?.VITE_BACKEND_URL || (typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.hostname}:3000` : 'http://localhost:3000');
+      socket = io(socketUrl, {
+        transports: ['websocket', 'polling'],
+        reconnection: true,
+        reconnectionAttempts: 30,
+        reconnectionDelay: 1000
+      });
+
+      socket.on('connect', () => {
+        setSocketConnected(true);
+        syncFromBackend();
+      });
+
+      socket.on('disconnect', () => {
+        setSocketConnected(false);
+      });
+
+      socket.on('state:init', (payload) => {
+        if (payload) {
+          if (Array.isArray(payload.servers)) setServers(payload.servers);
+          if (Array.isArray(payload.activeRequests)) setActiveRequests(payload.activeRequests);
+          if (Array.isArray(payload.queuedRequests)) setQueuedRequests(payload.queuedRequests);
+          if (Array.isArray(payload.requests)) setHistory(payload.requests);
+          if (payload.selectedAlgorithm) setSelectedAlgorithm(payload.selectedAlgorithm);
+          if (payload.latestDecision) setLatestDecision(payload.latestDecision);
+          if (payload.settings) setSettings(prev => ({ ...prev, ...payload.settings }));
+        }
+      });
+
+      socket.on('request:assigned', (data) => {
+        if (!data || !data.request) return;
+        setSimulationStatus('running');
+        if (data.latestDecision) setLatestDecision(data.latestDecision);
+        if (Array.isArray(data.servers)) setServers(data.servers);
+
+        // Prepend to history avoiding duplicates
+        setHistory(prev => {
+          const exists = prev.some(r => r.id === data.request.id);
+          return exists ? prev.map(r => r.id === data.request.id ? { ...r, ...data.request } : r) : [data.request, ...prev];
+        });
+
+        // Add to activeRequests avoiding duplicates
+        setActiveRequests(prev => {
+          const exists = prev.some(r => r.id === data.request.id);
+          return exists ? prev.map(r => r.id === data.request.id ? { ...r, ...data.request } : r) : [...prev, data.request];
+        });
+      });
+
+      socket.on('request:completed', (data) => {
+        if (!data || !data.request) return;
+        if (Array.isArray(data.servers)) setServers(data.servers);
+
+        // Update in history
+        setHistory(prev =>
+          prev.map(r => (r.id === data.request.id ? { ...r, ...data.request, status: 'completed' } : r))
+        );
+
+        // Remove from activeRequests
+        setActiveRequests(prev => prev.filter(r => r.id !== data.request.id));
+      });
+
+      socket.on('request:queued', (data) => {
+        if (!data || !data.request) return;
+        if (Array.isArray(data.queuedRequests)) {
+          setQueuedRequests(data.queuedRequests);
+        } else {
+          setQueuedRequests(prev => [...prev, data.request]);
+        }
+        setHistory(prev => {
+          const exists = prev.some(r => r.id === data.request.id);
+          return exists ? prev.map(r => r.id === data.request.id ? { ...r, ...data.request } : r) : [data.request, ...prev];
+        });
+      });
+
+      socket.on('request:dequeued', (data) => {
+        if (!data || !data.request) return;
+        if (Array.isArray(data.queuedRequests)) {
+          setQueuedRequests(data.queuedRequests);
+        } else {
+          setQueuedRequests(prev => prev.filter(r => r.id !== data.request.id));
+        }
+      });
+
+      socket.on('request:rejected', (data) => {
+        if (!data || !data.request) return;
+        setHistory(prev => {
+          const exists = prev.some(r => r.id === data.request.id);
+          return exists ? prev.map(r => r.id === data.request.id ? { ...r, ...data.request } : r) : [data.request, ...prev];
+        });
+      });
+
+      socket.on('server:scaled', (data) => {
+        if (Array.isArray(data.servers)) setServers(data.servers);
+        if (data.event) {
+          setAutoScaleAlert(data.event);
+          setTimeout(() => setAutoScaleAlert(null), 6000);
+        }
+      });
+
+      socket.on('servers:update', (data) => {
+        if (data && Array.isArray(data.servers)) {
+          setServers(data.servers);
+        }
+      });
+
+      socket.on('algorithm:changed', (data) => {
+        if (data && data.selectedAlgorithm) {
+          setSelectedAlgorithm(data.selectedAlgorithm);
+        }
+      });
+
+      socket.on('settings:update', (data) => {
+        if (data && data.settings) {
+          setSettings(prev => ({ ...prev, ...data.settings }));
+        }
+      });
+
+      socket.on('state:reset', (payload) => {
+        if (payload) {
+          if (Array.isArray(payload.servers)) setServers(payload.servers);
+          if (Array.isArray(payload.activeRequests)) setActiveRequests(payload.activeRequests);
+          if (Array.isArray(payload.queuedRequests)) setQueuedRequests(payload.queuedRequests);
+          if (Array.isArray(payload.requests)) setHistory(payload.requests);
+          setLatestDecision(null);
+          setSimulationStatus('idle');
+        }
+      });
+    } catch (err) {
+      console.warn('Socket.IO connection setup failed:', err);
+    }
+
+    // Initial load
     syncFromBackend();
-    const interval = setInterval(syncFromBackend, 1200);
-    return () => clearInterval(interval);
+
+    return () => {
+      if (socket) socket.disconnect();
+    };
   }, [syncFromBackend]);
 
   /**
@@ -872,6 +1017,7 @@ export function SimulationProvider({ children }) {
         latestDecision,
         autoScaleAlert,
         stats,
+        socketConnected,
         setSelectedAlgorithm,
         setSettings,
         sendOneRequest,
