@@ -89,13 +89,33 @@ export default function App() {
   const [workloadUnits, setWorkloadUnits] = useState(2);
   const [priority, setPriority] = useState('normal');
 
-  // Submission & Tracking State
+  // Stable Client Identity stored in localStorage (Client A, Client B, etc.)
+  const [clientId, setClientId] = useState(() => {
+    try {
+      let saved = localStorage.getItem('user_client_id');
+      if (!saved) {
+        saved = 'client-a';
+        localStorage.setItem('user_client_id', saved);
+      }
+      return saved;
+    } catch {
+      return 'client-a';
+    }
+  });
+
+  const clientIdRef = useRef(clientId);
+  useEffect(() => {
+    clientIdRef.current = clientId;
+  }, [clientId]);
+
+  // Submission & Tracking State - scoped strictly to this client identity
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [lastSubmittedRequest, setLastSubmittedRequest] = useState(null);
   const [trackedRequest, setTrackedRequest] = useState(null);
   const [submissionHistory, setSubmissionHistory] = useState(() => {
     try {
-      const saved = localStorage.getItem('user_form_history');
+      const curId = localStorage.getItem('user_client_id') || 'client-a';
+      const saved = localStorage.getItem(`user_form_history_${curId}`);
       return saved ? JSON.parse(saved) : [];
     } catch {
       return [];
@@ -120,7 +140,7 @@ export default function App() {
   // Poller Ref
   const pollTimerRef = useRef(null);
 
-  // Socket.IO Real-Time Listener for instant request completion pushes
+  // Socket.IO Real-Time Listener - filtered strictly to this client's submissions
   useEffect(() => {
     let socket;
     try {
@@ -142,6 +162,11 @@ export default function App() {
 
       socket.on('request:completed', (data) => {
         if (!data || !data.requestId) return;
+        const curClient = clientIdRef.current;
+        // Ignore requests belonging to other clients
+        if (data.clientId && data.clientId !== curClient && (!data.request || data.request.clientId !== curClient)) {
+          return;
+        }
         setTrackedRequest(prev => {
           if (prev && prev.id === data.requestId) {
             return { ...prev, ...data.request, status: 'completed' };
@@ -155,6 +180,11 @@ export default function App() {
 
       socket.on('request:assigned', (data) => {
         if (!data || !data.request) return;
+        const curClient = clientIdRef.current;
+        // Ignore requests belonging to other clients
+        if (data.request.clientId && data.request.clientId !== curClient) {
+          return;
+        }
         setTrackedRequest(prev => {
           if (prev && prev.id === data.request.id) {
             return { ...prev, ...data.request };
@@ -227,12 +257,26 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // Save history to local storage
+  // Switch client session (Client A, Client B, etc.)
+  const handleSwitchClient = (newId) => {
+    setClientId(newId);
+    try {
+      localStorage.setItem('user_client_id', newId);
+      const saved = localStorage.getItem(`user_form_history_${newId}`);
+      setSubmissionHistory(saved ? JSON.parse(saved) : []);
+    } catch {
+      setSubmissionHistory([]);
+    }
+    setTrackedRequest(null);
+    setLastSubmittedRequest(null);
+  };
+
+  // Save history to local storage strictly scoped to this clientId
   useEffect(() => {
     try {
-      localStorage.setItem('user_form_history', JSON.stringify(submissionHistory));
+      localStorage.setItem(`user_form_history_${clientId}`, JSON.stringify(submissionHistory));
     } catch {}
-  }, [submissionHistory]);
+  }, [submissionHistory, clientId]);
 
   // Handle Preset User Change
   const handleUserPresetChange = (presetId) => {
@@ -311,7 +355,9 @@ export default function App() {
     const idempotencyKey = `idemp-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 
     const payload = {
+      clientId,
       clientName: trimmedName,
+      userName: trimmedName,
       department: department.trim() || 'General',
       requestType,
       title: trimmedTitle,
@@ -356,7 +402,7 @@ export default function App() {
   const clearHistory = () => {
     setSubmissionHistory([]);
     try {
-      localStorage.removeItem('user_form_history');
+      localStorage.removeItem(`user_form_history_${clientId}`);
     } catch {}
   };
 
@@ -427,15 +473,24 @@ export default function App() {
             <span>{socketLive ? 'Real-Time Sync' : 'Polling Mode'}</span>
           </div>
 
-          <a
-            href={getLoadBalancerPortalUrl()}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 text-xs text-amber-400 hover:text-amber-300 bg-amber-500/10 border border-amber-500/30 hover:border-amber-500/50 px-3 py-1.5 rounded-md transition-colors"
-          >
-            <span>Load Balancer Portal</span>
-            <ExternalLink size={13} />
-          </a>
+          {/* Client Session Selector */}
+          <div className="flex items-center gap-1.5 bg-[#1e1e1e] border border-[#3e3e42] px-2.5 py-1.5 rounded-md text-xs">
+            <User size={13} className="text-amber-400" />
+            <span className="text-[#888] hidden md:inline">Client:</span>
+            <select
+              value={clientId}
+              onChange={(e) => handleSwitchClient(e.target.value)}
+              className="bg-transparent text-white font-mono font-semibold focus:outline-none cursor-pointer"
+              title="Current client session identity"
+            >
+              <option value="client-a" className="bg-[#252526]">Client A</option>
+              <option value="client-b" className="bg-[#252526]">Client B</option>
+              <option value="client-c" className="bg-[#252526]">Client C</option>
+              {clientId !== 'client-a' && clientId !== 'client-b' && clientId !== 'client-c' && (
+                <option value={clientId} className="bg-[#252526]">{clientId}</option>
+              )}
+            </select>
+          </div>
         </div>
       </header>
 

@@ -129,11 +129,11 @@ export default function Dashboard({ onNavigate }) {
       {/* Dynamic Summary Metric Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
         <div className="p-3 bg-[#252526] border border-[#2d2d30] rounded-lg space-y-1">
-          <span className="text-[11px] font-medium text-[#858585]">Total Clients</span>
+          <span className="text-[11px] font-medium text-[#858585]">Distinct Clients</span>
           <div className="text-xl font-bold font-mono text-white tabular-nums">
             {stats.totalClients}
           </div>
-          <span className="text-[10px] text-[#71717a]">Configured sources</span>
+          <span className="text-[10px] text-[#71717a]">Active requesters</span>
         </div>
 
         <div className="p-3 bg-[#252526] border border-[#2d2d30] rounded-lg space-y-1">
@@ -343,7 +343,7 @@ export default function Dashboard({ onNavigate }) {
           <div className="p-8 text-center border border-dashed border-[#3e3e42] rounded-lg text-xs text-[#858585] space-y-2">
             <p>No requests processed yet in this session.</p>
             <p className="text-[11px] text-[#71717a]">
-              Navigate to Live Simulation Studio, select your clients, and click "Run Simulation".
+              Submit requests through the User Application (http://localhost:5174) to observe real-time distribution across the server fleet.
             </p>
           </div>
         ) : (
@@ -364,7 +364,7 @@ export default function Dashboard({ onNavigate }) {
                 {recentRequests.map((req) => (
                   <tr key={req.id} className="hover:bg-[#202023] transition-colors">
                     <td className="py-2.5 px-3 font-mono text-amber-400 text-[11px]">{req.id}</td>
-                    <td className="py-2.5 px-3 text-[#cccccc]">{req.clientName}</td>
+                    <td className="py-2.5 px-3 text-[#cccccc]">{req.clientName || req.userName}</td>
                     <td className="py-2.5 px-3 font-medium text-white">{req.serverName || '—'}</td>
                     <td className="py-2.5 px-3 text-[#a1a1aa] font-mono text-[11px]">{req.algorithm}</td>
                     <td className="py-2.5 px-3 font-mono text-[#a1a1aa]">{req.durationMs}ms</td>
@@ -386,7 +386,7 @@ export default function Dashboard({ onNavigate }) {
         onClose={() => setIsDemoModalOpen(false)}
         onConfirm={loadDemoScenario}
         title="Load Standard Demo Scenario?"
-        message="This will configure 5 standard clients and 3 servers (Server A: weight 5, max 10, concurrency 3; Server B: weight 3, max 6, concurrency 2; Server C: weight 2, max 4, concurrency 2). You can then run simulations and inspect routing decisions."
+        message="This will configure 3 standard backend servers (Server A: weight 5, max 10, concurrency 3; Server B: weight 3, max 6, concurrency 2; Server C: weight 2, max 4, concurrency 2). You can then submit requests from the User Portal on port 5174."
         confirmText="Load Scenario"
       />
     </div>

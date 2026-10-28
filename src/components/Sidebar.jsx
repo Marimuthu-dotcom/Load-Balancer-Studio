@@ -18,7 +18,6 @@ import {
 export default function Sidebar({ currentTab, setCurrentTab, isMobileOpen, setIsMobileOpen }) {
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'userForm', label: 'User Request Form', icon: FileText, highlight: true },
     { id: 'studio', label: 'Live Simulation', icon: Radio },
     { id: 'servers', label: 'Server Management', icon: Server },
     { id: 'history', label: 'Request History', icon: FileText },
@@ -90,42 +89,14 @@ export default function Sidebar({ currentTab, setCurrentTab, isMobileOpen, setIs
                   className={`w-4 h-4 shrink-0 ${
                     isActive
                       ? 'text-[#f59e0b]'
-                      : item.highlight
-                      ? 'text-[#fbbf24]'
                       : 'text-[#71717a]'
                   }`}
                 />
                 <span className="truncate">{item.label}</span>
-                {item.highlight && (
-                  <span className="ml-auto text-[9px] px-1.5 py-0.2 rounded bg-[#f59e0b]/20 border border-[#f59e0b]/40 text-[#f59e0b] font-mono">
-                    LIVE
-                  </span>
-                )}
               </button>
             );
           })}
         </nav>
-
-        {/* Footer info box */}
-        <div className="p-3 border-t border-[#27272a] bg-[#141416]/50">
-          <div className="p-2.5 bg-[#18181b] border border-[#27272a] rounded text-[11px] space-y-1">
-            <div className="flex items-center justify-between text-[#858585]">
-              <span>API Gateway</span>
-              <span className="text-[#10b981] font-mono">Port 3000</span>
-            </div>
-            <div className="flex items-center justify-between text-[#858585]">
-              <span>User App</span>
-              <a
-                href={import.meta.env?.VITE_USER_APP_URL || (typeof window !== 'undefined' && window.location?.hostname ? `${window.location.protocol}//${window.location.hostname}:5174` : 'http://localhost:5174')}
-                target="_blank"
-                rel="noreferrer"
-                className="text-[#f59e0b] hover:underline font-mono"
-              >
-                Port 5174 ↗
-              </a>
-            </div>
-          </div>
-        </div>
       </aside>
     </>
   );

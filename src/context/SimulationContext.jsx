@@ -85,7 +85,13 @@ export function SimulationProvider({ children }) {
     const totalAssigned = servers.reduce((acc, s) => acc + (s.totalAssigned || 0), 0);
     const totalCompleted = servers.reduce((acc, s) => acc + (s.completedRequests || 0), 0);
     const totalFailed = servers.reduce((acc, s) => acc + (s.failedRequests || 0), 0);
-    const totalClientsCount = clients.length;
+    // Distinct real clients derived from actual requests
+    const distinctRealClients = new Set(
+      [...history, ...activeRequests, ...queuedRequests]
+        .map(r => r.clientId || r.userId || r.clientName)
+        .filter(Boolean)
+    );
+    const totalClientsCount = distinctRealClients.size;
     const enabledServersCount = servers.filter(s => s.enabled && !s.paused).length;
     const autoScaledServersCount = servers.filter(s => s.isAutoScaled).length;
     const totalRequestsGenerated = history.length + queuedRequests.length + activeRequests.length;
@@ -1003,6 +1009,19 @@ export function SimulationProvider({ children }) {
     setServers(prev => prev.filter(s => s.id !== serverId));
   }, []);
 
+  const updateSelectedAlgorithm = useCallback(async (newAlgo) => {
+    setSelectedAlgorithm(newAlgo);
+    try {
+      await fetch('/api/algorithm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ algorithm: newAlgo })
+      });
+    } catch (err) {
+      console.warn('Could not sync algorithm to backend:', err);
+    }
+  }, []);
+
   return (
     <SimulationContext.Provider
       value={{
@@ -1018,7 +1037,7 @@ export function SimulationProvider({ children }) {
         autoScaleAlert,
         stats,
         socketConnected,
-        setSelectedAlgorithm,
+        setSelectedAlgorithm: updateSelectedAlgorithm,
         setSettings,
         sendOneRequest,
         runMultiClientSimulation,

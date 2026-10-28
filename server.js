@@ -215,6 +215,8 @@ function assignAndProcessRequest(requestRecord, server, explanation) {
 
   // Emit real-time assigned event via Socket.IO immediately
   io.emit('request:assigned', {
+    requestId: requestRecord.id,
+    clientId: requestRecord.clientId,
     request: requestRecord,
     server: {
       id: server.id,
@@ -248,6 +250,7 @@ function assignAndProcessRequest(requestRecord, server, explanation) {
     // Emit real-time completion event via Socket.IO
     io.emit('request:completed', {
       requestId: requestRecord.id,
+      clientId: requestRecord.clientId,
       request: requestRecord,
       server: {
         id: server.id,
@@ -289,9 +292,25 @@ app.get('/api/state', (req, res) => {
   });
 });
 
+// Query requests with optional client filtering (for client-scoped Recent Submission History)
+app.get('/api/requests', (req, res) => {
+  const { clientId, limit = 50 } = req.query;
+  let list = state.requests;
+  if (clientId) {
+    list = list.filter(r => r.clientId === clientId);
+  }
+  res.json({
+    success: true,
+    requests: list.slice(0, parseInt(limit) || 50),
+    totalCount: list.length
+  });
+});
+
 // Single Request Submission from User Form (Section 3 & 4)
 app.post('/api/requests', (req, res) => {
   const userName = req.body.userName || req.body.clientName || 'Interactive Requester';
+  const clientId = req.body.clientId || req.headers['x-client-id'] || `client-${userName.trim().toLowerCase().replace(/[^a-z0-9]/g, '-')}`;
+  const clientName = req.body.clientName || userName.trim();
   const userId = req.body.userId || `user-${userName.trim().toLowerCase().replace(/[^a-z0-9]/g, '-')}`;
   const requestType = req.body.requestType || 'Data Query';
   const title = req.body.title || 'User Request';
@@ -333,6 +352,8 @@ app.post('/api/requests', (req, res) => {
 
   const newRequestRecord = {
     id: requestId,
+    clientId: clientId,
+    clientName: clientName,
     userName: userName.trim(),
     userId: userId || `user-${userName.trim().toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
     requestType,

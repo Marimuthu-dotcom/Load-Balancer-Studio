@@ -1,17 +1,17 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
+ * 
+ * Dynamic Live Simulation & Topology Monitor
+ * Monitors real incoming requests from the User Portal (port 5174) and displays
+ * actual routing paths, algorithmic decisions, and server fleet utilization.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useSimulation } from '../context/SimulationContext.jsx';
 import { ALGORITHM_INFO } from '../engine/algorithms.js';
 import {
-  Play,
-  Pause,
-  Square,
   RotateCcw,
-  Send,
   Zap,
   Activity,
   Cpu,
@@ -24,16 +24,15 @@ import {
   Info,
   AlertTriangle,
   Sparkles,
-  Plus,
   Flame,
-  CheckSquare,
-  Square as SquareIcon
+  Radio,
+  ExternalLink
 } from 'lucide-react';
 
 export default function SimulationStudio() {
   const {
-    clients,
     servers,
+    history,
     selectedAlgorithm,
     setSelectedAlgorithm,
     simulationStatus,
@@ -43,69 +42,40 @@ export default function SimulationStudio() {
     autoScaleAlert,
     stats,
     settings,
-    setSettings,
-    runMultiClientSimulation,
-    sendOneRequest,
     initializeFleet,
-    startSimulation,
-    pauseSimulation,
-    resumeSimulation,
-    stopSimulation,
     resetSimulation
   } = useSimulation();
 
-  // Multi-client selection state (as requested: "The user can select how many client should send a request then after select the clients then click the run simulation btn")
-  const [selectedClientIds, setSelectedClientIds] = useState(() => clients.map(c => c.id));
-  const [requestsPerClient, setRequestsPerClient] = useState(2);
-  const [customDuration, setCustomDuration] = useState(settings.defaultDurationMs || 2500);
   const [activeTab, setActiveTab] = useState('decision'); // 'decision' | 'queue' | 'stats'
-
-  // Quick fleet setup inputs if empty
   const [setupServerCount, setSetupServerCount] = useState(3);
-  const [setupClientCount, setSetupClientCount] = useState(4);
-
-  // Sync selected clients when clients change
-  useEffect(() => {
-    if (clients.length > 0 && selectedClientIds.length === 0) {
-      setSelectedClientIds(clients.map(c => c.id));
-    }
-  }, [clients]);
 
   const currentAlgo = ALGORITHM_INFO[selectedAlgorithm] || ALGORITHM_INFO.ROUND_ROBIN;
 
-  const toggleClientSelection = (clientId) => {
-    setSelectedClientIds(prev =>
-      prev.includes(clientId)
-        ? prev.filter(id => id !== clientId)
-        : [...prev, clientId]
-    );
-  };
-
-  const selectAllClients = () => {
-    setSelectedClientIds(clients.map(c => c.id));
-  };
-
-  const deselectAllClients = () => {
-    setSelectedClientIds([]);
-  };
-
-  const handleRunSimulation = () => {
-    if (selectedClientIds.length === 0) return;
-    runMultiClientSimulation({
-      selectedClientIds,
-      requestsPerClient: Number(requestsPerClient),
-      durationMs: Number(customDuration),
-      payloadDescription: 'Interactive workload'
+  // Dynamically compute distinct real clients that have actually submitted requests
+  const distinctClients = React.useMemo(() => {
+    const map = new Map();
+    [...activeRequests, ...history].forEach(req => {
+      const cId = req.clientId || req.userId || req.clientName || 'Interactive Client';
+      const cName = req.clientName || req.userName || cId;
+      if (!map.has(cId)) {
+        map.set(cId, {
+          id: cId,
+          name: cName,
+          totalRequests: 0,
+          activeRequests: 0,
+          completedRequests: 0,
+          latestRequestTitle: req.title || req.payloadDescription || 'Service Query'
+        });
+      }
+      const item = map.get(cId);
+      item.totalRequests++;
+      if (req.status === 'processing') item.activeRequests++;
+      if (req.status === 'completed') item.completedRequests++;
     });
-  };
+    return Array.from(map.values());
+  }, [activeRequests, history]);
 
-  const handleSpeedChange = (speed) => {
-    setSettings(prev => ({ ...prev, simulationSpeed: speed }));
-  };
-
-  const totalPlannedRequests = selectedClientIds.length * requestsPerClient;
-
-  // Empty fleet state: Guide the user to deploy their fleet on demand
+  // Empty fleet state: Guide the user to deploy initial servers
   if (servers.length === 0) {
     return (
       <div className="space-y-6 max-w-4xl mx-auto">
@@ -119,7 +89,7 @@ export default function SimulationStudio() {
               Initialize Simulator Fleet
             </h2>
             <p className="text-xs text-[#a1a1aa] leading-relaxed">
-              No default static servers are currently active. Configure your initial server fleet below to monitor incoming traffic.
+              No backend servers are currently deployed. Configure your initial server fleet below to monitor incoming requests from the User Portal.
             </p>
           </div>
 
@@ -146,7 +116,7 @@ export default function SimulationStudio() {
             </div>
 
             <button
-              onClick={() => initializeFleet({ serverCount: setupServerCount, clientCount: 3 })}
+              onClick={() => initializeFleet({ serverCount: setupServerCount, clientCount: 0 })}
               className="w-full py-2.5 px-4 text-xs font-bold text-black bg-[#f59e0b] hover:bg-[#fbbf24] rounded-md transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
             >
               <Sparkles className="w-4 h-4" />
@@ -155,7 +125,7 @@ export default function SimulationStudio() {
           </div>
 
           <p className="text-[11px] text-[#71717a]">
-            You can configure servers from Server Management and submit client traffic from the User Portal (port 5174).
+            Requests originate from the separate User Application Portal on port 5174.
           </p>
         </div>
       </div>
@@ -164,7 +134,7 @@ export default function SimulationStudio() {
 
   return (
     <div className="space-y-6">
-      {/* Dynamic Auto-Scaling Notification Alert Banner */}
+      {/* Elastic Auto-Scaling Notification Alert Banner */}
       {autoScaleAlert && (
         <div className="p-4 bg-amber-950/80 border-2 border-amber-500 rounded-lg text-amber-200 text-xs flex items-center justify-between gap-3 shadow-lg animate-in fade-in slide-in-from-top-2 duration-200">
           <div className="flex items-center gap-2.5">
@@ -186,205 +156,94 @@ export default function SimulationStudio() {
         </div>
       )}
 
-      {/* 1. Interactive Step-by-Step Simulation Control Deck */}
+      {/* 1. Dynamic Routing & Algorithm Control Deck */}
       <div className="p-5 bg-[#252526] border border-[#2d2d30] rounded-xl shadow-sm space-y-4">
-        {/* Step 1: Select Active Clients */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-400 font-bold text-[11px] flex items-center justify-center">
-                1
-              </span>
-              <h3 className="text-xs font-bold text-white tracking-wide">
-                Select Origin Clients Sending Requests ({selectedClientIds.length} of {clients.length} selected)
-              </h3>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-[#2d2d30]">
+          <div>
+            <h2 className="text-sm font-bold text-white tracking-wide flex items-center gap-2">
+              <Radio className="w-4 h-4 text-amber-400" />
+              Live Traffic & Topology Monitor
+            </h2>
+            <p className="text-xs text-[#858585] mt-0.5">
+              Observing real requests submitted through User Portal (port 5174). No dummy clients or synthetic requests.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Authoritative Algorithm Selector (Controls Real Backend Routing) */}
+            <div className="flex items-center gap-2 bg-[#18181b] border border-[#3e3e42] px-3 py-1.5 rounded-md">
+              <span className="text-xs text-[#858585] font-medium">Active Algorithm:</span>
+              <select
+                value={selectedAlgorithm}
+                onChange={(e) => setSelectedAlgorithm(e.target.value)}
+                className="bg-transparent text-xs text-white font-semibold focus:outline-none cursor-pointer"
+                title="Authoritative Load Balancing Algorithm"
+              >
+                {Object.values(ALGORITHM_INFO).map((algo) => (
+                  <option key={algo.id} value={algo.id} className="bg-[#252526] text-white">
+                    {algo.name} ({algo.shortCode})
+                  </option>
+                ))}
+              </select>
             </div>
 
-            <div className="flex items-center gap-2 text-xs">
-              <button
-                onClick={selectAllClients}
-                className="text-[11px] text-amber-400 hover:text-amber-300 font-medium cursor-pointer"
-              >
-                Select All
-              </button>
-              <span className="text-[#52525b]">·</span>
-              <button
-                onClick={deselectAllClients}
-                className="text-[11px] text-[#858585] hover:text-[#cccccc] cursor-pointer"
-              >
-                Clear
-              </button>
-            </div>
-          </div>
-
-          {/* Client Selection Badges */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
-            {clients.map(client => {
-              const isSelected = selectedClientIds.includes(client.id);
-              return (
-                <div
-                  key={client.id}
-                  onClick={() => toggleClientSelection(client.id)}
-                  className={`p-2.5 rounded-lg border text-xs cursor-pointer transition-all duration-150 flex items-center justify-between ${
-                    isSelected
-                      ? 'bg-[#1e1e1e] border-[#f59e0b] shadow-xs'
-                      : 'bg-[#18181b]/60 border-[#2d2d30] text-[#71717a] hover:border-[#3e3e42]'
-                  }`}
-                >
-                  <div className="min-w-0 pr-1">
-                    <div className={`font-semibold truncate ${isSelected ? 'text-white' : 'text-[#71717a]'}`}>
-                      {client.name}
-                    </div>
-                    <div className="text-[10px] text-[#858585] font-mono">{client.type}</div>
-                  </div>
-                  {isSelected ? (
-                    <CheckSquare className="w-4 h-4 text-[#f59e0b] shrink-0" />
-                  ) : (
-                    <SquareIcon className="w-4 h-4 text-[#52525b] shrink-0" />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Step 2: Workload & Algorithm Parameters */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2 border-t border-[#2d2d30]">
-          <div>
-            <label className="block text-[11px] text-[#858585] mb-1 font-medium">
-              Requests per Selected Client
-            </label>
-            <input
-              type="number"
-              min="1"
-              max="20"
-              value={requestsPerClient}
-              onChange={(e) => setRequestsPerClient(Math.max(1, parseInt(e.target.value) || 1))}
-              className="w-full bg-[#18181b] border border-[#3e3e42] rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-[#f59e0b]"
-            />
-          </div>
-
-          <div>
-            <label className="block text-[11px] text-[#858585] mb-1 font-medium">
-              Load Balancing Algorithm
-            </label>
-            <select
-              value={selectedAlgorithm}
-              onChange={(e) => setSelectedAlgorithm(e.target.value)}
-              className="w-full bg-[#18181b] border border-[#3e3e42] rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-[#f59e0b]"
-            >
-              {Object.values(ALGORITHM_INFO).map((algo) => (
-                <option key={algo.id} value={algo.id} className="bg-[#252526]">
-                  {algo.name} ({algo.shortCode})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-[11px] text-[#858585] mb-1 font-medium">
-              Processing Duration (ms)
-            </label>
-            <input
-              type="number"
-              step="200"
-              min="200"
-              max="20000"
-              value={customDuration}
-              onChange={(e) => setCustomDuration(Math.max(200, parseInt(e.target.value) || 1000))}
-              className="w-full bg-[#18181b] border border-[#3e3e42] rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-[#f59e0b]"
-            />
-          </div>
-
-          <div>
-            <label className="block text-[11px] text-[#858585] mb-1 font-medium">
-              Simulation Playback Speed
-            </label>
-            <div className="flex items-center gap-1 bg-[#18181b] p-1 rounded border border-[#2d2d30]">
-              {[0.5, 1, 2, 5].map((speed) => (
-                <button
-                  key={speed}
-                  onClick={() => handleSpeedChange(speed)}
-                  className={`flex-1 py-1 text-[11px] font-mono rounded transition-colors ${
-                    (settings.simulationSpeed || 1) === speed
-                      ? 'bg-[#f59e0b] text-black font-semibold'
-                      : 'text-[#858585] hover:text-white'
-                  }`}
-                >
-                  {speed}x
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Step 3: Primary Action Bar with "Run Simulation" */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-[#2d2d30]">
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-[#a1a1aa] font-mono">
-              Workload Plan: <strong className="text-white">{selectedClientIds.length}</strong> clients × <strong className="text-white">{requestsPerClient}</strong> reqs = <strong className="text-amber-400">{totalPlannedRequests} total requests</strong>
-            </span>
-            {settings.autoScaleOnOverload && (
-              <span className="text-[10px] text-emerald-400 bg-emerald-950/60 border border-emerald-800 px-2 py-0.5 rounded font-mono hidden md:inline">
-                ⚡ Auto-Scaling Enabled
-              </span>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2">
-            {simulationStatus === 'running' ? (
-              <button
-                onClick={pauseSimulation}
-                className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-amber-300 bg-amber-950/60 hover:bg-amber-900 border border-amber-800 rounded-md transition-colors cursor-pointer"
-              >
-                <Pause className="w-3.5 h-3.5" />
-                <span>Pause</span>
-              </button>
-            ) : simulationStatus === 'paused' ? (
-              <button
-                onClick={resumeSimulation}
-                className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-emerald-300 bg-emerald-950/60 hover:bg-emerald-900 border border-emerald-800 rounded-md transition-colors cursor-pointer"
-              >
-                <Play className="w-3.5 h-3.5" />
-                <span>Resume</span>
-              </button>
-            ) : null}
-
+            {/* Clear / Reset In-Flight State */}
             <button
               onClick={resetSimulation}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-zinc-300 bg-[#27272a] hover:bg-[#333338] border border-[#3f3f46] rounded-md transition-colors cursor-pointer"
-              title="Reset in-flight simulation and counters"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-zinc-300 bg-[#27272a] hover:bg-[#333338] border border-[#3f3f46] rounded-md transition-colors cursor-pointer"
+              title="Reset in-flight request queues"
             >
               <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
-              <span>Reset</span>
+              <span>Reset State</span>
             </button>
+          </div>
+        </div>
 
-            {/* Prominent Primary Run Simulation Button as Requested */}
-            <button
-              onClick={handleRunSimulation}
-              disabled={selectedClientIds.length === 0}
-              className="flex items-center gap-2 px-5 py-2 text-xs font-bold text-black bg-[#f59e0b] hover:bg-[#fbbf24] active:scale-98 rounded-md transition-all shadow-md shadow-[#f59e0b]/20 disabled:opacity-40 cursor-pointer"
-            >
-              <Play className="w-4 h-4 fill-black text-black" />
-              <span>Run Simulation ({totalPlannedRequests} Requests)</span>
-            </button>
+        {/* Live Traffic Summary Bar */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
+          <div className="p-3 bg-[#18181b] border border-[#2d2d30] rounded-lg">
+            <span className="text-[11px] font-medium text-[#858585] block">Origin Clients</span>
+            <div className="text-lg font-bold font-mono text-white tabular-nums">
+              {distinctClients.length} <span className="text-xs text-[#71717a] font-normal">distinct</span>
+            </div>
+          </div>
+
+          <div className="p-3 bg-[#18181b] border border-[#2d2d30] rounded-lg">
+            <span className="text-[11px] font-medium text-[#858585] block">Total Real Requests</span>
+            <div className="text-lg font-bold font-mono text-amber-400 tabular-nums">
+              {stats.totalRequestsGenerated} <span className="text-xs text-[#71717a] font-normal">submitted</span>
+            </div>
+          </div>
+
+          <div className="p-3 bg-[#18181b] border border-[#2d2d30] rounded-lg">
+            <span className="text-[11px] font-medium text-[#858585] block">Active In-Flight</span>
+            <div className="text-lg font-bold font-mono text-blue-400 tabular-nums">
+              {activeRequests.length} <span className="text-xs text-[#71717a] font-normal">processing</span>
+            </div>
+          </div>
+
+          <div className="p-3 bg-[#18181b] border border-[#2d2d30] rounded-lg">
+            <span className="text-[11px] font-medium text-[#858585] block">Queued Buffer</span>
+            <div className={`text-lg font-bold font-mono tabular-nums ${queuedRequests.length > 0 ? 'text-amber-400' : 'text-zinc-500'}`}>
+              {queuedRequests.length} <span className="text-xs text-[#71717a] font-normal">waiting</span>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* 2. Visual Request Pipeline: Clients -> Load Balancer Hub -> Server Fleet */}
+      {/* 2. Visual Request Pipeline: Real Clients -> Load Balancer Hub -> Server Fleet */}
       <div className="p-6 bg-[#18181b] border border-[#27272a] rounded-xl relative overflow-hidden shadow-inner">
         <div className="flex items-center justify-between pb-4 border-b border-[#27272a] text-xs">
           <div className="flex items-center gap-2">
             <Activity className="w-4 h-4 text-amber-400" />
             <span className="font-bold text-white tracking-wide">
-              Live Topology Pipeline: Clients → Load Balancer → Active Servers
+              Live Topology Pipeline: Real Requests → Load Balancer → Active Servers
             </span>
           </div>
 
           <div className="flex items-center gap-3 text-[11px] font-mono">
             <span className="text-zinc-400">
-              In-Flight Active: <strong className="text-blue-400 font-bold">{activeRequests.length}</strong>
+              Active: <strong className="text-blue-400 font-bold">{activeRequests.length}</strong>
             </span>
             <span className="text-zinc-400">
               Queued: <strong className={queuedRequests.length > 0 ? 'text-amber-400' : 'text-zinc-500'}>{queuedRequests.length}</strong>
@@ -394,55 +253,74 @@ export default function SimulationStudio() {
 
         {/* 3-Column Visual Stage */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 pt-6 items-start">
-          {/* Column 1: Origin Clients (Col 1-3) */}
-          <div className="lg:col-span-3 space-y-2.5">
+          
+          {/* Column 1: Origin Clients & Real User Requests (Col 1-4) */}
+          <div className="lg:col-span-4 space-y-2.5">
             <div className="text-[10px] uppercase font-mono font-bold text-[#71717a] tracking-wider mb-1 flex items-center justify-between">
               <span className="flex items-center gap-1.5">
                 <Users className="w-3 h-3 text-blue-400" />
-                Origin Clients ({clients.length})
+                Origin Clients ({distinctClients.length} Distinct)
+              </span>
+              <span className="text-[10px] text-zinc-500">
+                User Portal Traffic
               </span>
             </div>
 
-            {clients.map((client) => {
-              const isSelected = selectedClientIds.includes(client.id);
-              const activeCountForClient = activeRequests.filter(r => r.clientId === client.id).length;
+            {distinctClients.length === 0 ? (
+              <div className="p-6 text-center border border-dashed border-[#3e3e42] rounded-lg text-xs text-[#858585] space-y-2">
+                <p className="font-medium text-[#cccccc]">Awaiting Client Requests</p>
+                <p className="text-[11px] text-[#71717a]">
+                  Submit requests through the User Application form (port 5174). Each submission will appear here in real time.
+                </p>
+              </div>
+            ) : (
+              distinctClients.map((client) => {
+                const activeJobs = activeRequests.filter(
+                  r => r.clientId === client.id || r.userId === client.id || r.clientName === client.name
+                );
 
-              return (
-                <div
-                  key={client.id}
-                  onClick={() => toggleClientSelection(client.id)}
-                  className={`p-3 rounded-lg border text-xs cursor-pointer transition-all duration-200 relative ${
-                    activeCountForClient > 0
-                      ? 'bg-[#252526] border-[#f59e0b] shadow-md shadow-[#f59e0b]/10'
-                      : isSelected
-                      ? 'bg-[#202023] border-[#3e3e42]'
-                      : 'bg-[#18181b]/50 border-zinc-800 text-[#71717a] opacity-60'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-white truncate max-w-[140px]">{client.name}</span>
-                    <span className="text-[10px] text-[#71717a] font-mono">{client.type}</span>
-                  </div>
-
-                  <div className="flex items-center justify-between text-[10px] text-[#858585] mt-1 font-mono">
-                    <span>Lifetime: {client.totalRequests || 0} reqs</span>
-                    {activeCountForClient > 0 && (
-                      <span className="text-amber-400 font-bold animate-pulse">
-                        ● {activeCountForClient} Sending
+                return (
+                  <div
+                    key={client.id}
+                    className={`p-3.5 rounded-lg border text-xs transition-all duration-200 relative ${
+                      activeJobs.length > 0
+                        ? 'bg-[#252526] border-[#f59e0b] shadow-md shadow-[#f59e0b]/10'
+                        : 'bg-[#202023] border-[#3e3e42]'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-white truncate max-w-[170px]">
+                        {client.name}
                       </span>
-                    )}
-                  </div>
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#18181b] text-amber-400 border border-[#3e3e42]">
+                        {client.totalRequests} reqs
+                      </span>
+                    </div>
 
-                  {/* Pulsing visual connection point */}
-                  <span className={`absolute -right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full border-2 border-[#18181b] ${
-                    activeCountForClient > 0 ? 'bg-amber-400 animate-ping' : isSelected ? 'bg-blue-500' : 'bg-zinc-700'
-                  }`} />
-                </div>
-              );
-            })}
+                    <div className="text-[11px] text-[#888] truncate mt-1">
+                      {client.latestRequestTitle}
+                    </div>
+
+                    <div className="flex items-center justify-between text-[10px] text-[#858585] mt-1.5 font-mono pt-1.5 border-t border-[#2a2a2e]">
+                      <span>Completed: {client.completedRequests}</span>
+                      {activeJobs.length > 0 && (
+                        <span className="text-amber-400 font-bold animate-pulse">
+                          ● {activeJobs.length} In-Flight
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Connection Node */}
+                    <span className={`absolute -right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full border-2 border-[#18181b] ${
+                      activeJobs.length > 0 ? 'bg-amber-400 animate-ping' : 'bg-blue-500'
+                    }`} />
+                  </div>
+                );
+              })
+            )}
           </div>
 
-          {/* Column 2: Load Balancer Hub & In-Flight Router (Col 4-6) */}
+          {/* Column 2: Load Balancer Hub & In-Flight Router (Col 5-7) */}
           <div className="lg:col-span-3 flex flex-col items-center justify-center p-2">
             <div className="w-full bg-[#202023] border-2 border-amber-500/60 rounded-xl p-4 shadow-xl text-center space-y-3 relative">
               <div className="w-12 h-12 mx-auto rounded-full bg-amber-500/15 border border-amber-500/40 flex items-center justify-center text-amber-400">
@@ -453,13 +331,13 @@ export default function SimulationStudio() {
                 <h4 className="text-sm font-bold text-white tracking-wide">
                   Load Balancer Gateway
                 </h4>
-                <span className="text-[10px] font-mono text-amber-400 font-medium">
+                <span className="text-[11px] font-mono text-amber-400 font-medium">
                   {currentAlgo.name}
                 </span>
               </div>
 
               {/* Dynamic status readout */}
-              <div className="p-2 bg-[#18181b] border border-[#2d2d30] rounded-md text-[11px] space-y-1 text-left">
+              <div className="p-2.5 bg-[#18181b] border border-[#2d2d30] rounded-md text-[11px] space-y-1 text-left">
                 <div className="flex justify-between text-[#858585]">
                   <span>Status:</span>
                   <span className="text-white capitalize font-mono">{simulationStatus}</span>
@@ -471,8 +349,8 @@ export default function SimulationStudio() {
                   </span>
                 </div>
                 <div className="flex justify-between text-[#858585]">
-                  <span>Routing Stream:</span>
-                  <span className="text-blue-400 font-mono font-semibold">{activeRequests.length} in-transit</span>
+                  <span>In-Transit:</span>
+                  <span className="text-blue-400 font-mono font-semibold">{activeRequests.length} streams</span>
                 </div>
               </div>
 
@@ -480,7 +358,7 @@ export default function SimulationStudio() {
               {activeRequests.length > 0 && (
                 <div className="space-y-1.5 pt-1">
                   <div className="text-[10px] font-mono text-emerald-400 flex items-center justify-center gap-1 animate-pulse">
-                    <span>● Allocating traffic to servers...</span>
+                    <span>● Routing real requests to servers...</span>
                   </div>
                   <div className="flex flex-wrap gap-1 justify-center max-h-24 overflow-y-auto">
                     {activeRequests.slice(0, 6).map(req => (
@@ -500,26 +378,22 @@ export default function SimulationStudio() {
             </div>
           </div>
 
-          {/* Column 3: Servers with "How many request each server manage" and live progress bars (Col 7-12) */}
-          <div className="lg:col-span-6 space-y-3">
+          {/* Column 3: Servers with Managed Counters and Live Workload (Col 8-12) */}
+          <div className="lg:col-span-5 space-y-3">
             <div className="text-[10px] uppercase font-mono font-bold text-[#71717a] tracking-wider mb-1 flex items-center justify-between">
               <span className="flex items-center gap-1.5">
                 <Server className="w-3 h-3 text-emerald-400" />
                 Target Server Fleet ({servers.length} nodes)
               </span>
               <span className="text-[10px] font-mono text-zinc-500">
-                (Real-time managed loads & concurrency)
+                (Managed Loads & Concurrency)
               </span>
             </div>
 
             {servers.map((server) => {
               const active = server.activeRequests || 0;
-              const maxCap = Math.max(1, server.maxCapacity || 1);
               const conc = Math.max(1, server.concurrencyLimit || 1);
               const isOverloaded = active >= conc;
-              const utilPercent = Math.min(100, Math.round((active / maxCap) * 100));
-
-              // Active requests specifically assigned to this server
               const serverActiveJobs = activeRequests.filter(r => r.serverId === server.id);
 
               return (
@@ -535,12 +409,12 @@ export default function SimulationStudio() {
                       : 'bg-[#1e1e1e] border-[#2d2d30]'
                   }`}
                 >
-                  {/* Left connection node */}
+                  {/* Left Connection Node */}
                   <span className={`absolute -left-1.5 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full border-2 border-[#18181b] ${
                     isOverloaded ? 'bg-red-500 animate-ping' : active > 0 ? 'bg-emerald-400 animate-ping' : 'bg-zinc-600'
                   }`} />
 
-                  {/* Server Card Header with prominent "Total Managed" counter */}
+                  {/* Server Card Header with Prominent Total Managed Counter */}
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <div className="flex items-center gap-2">
@@ -548,7 +422,7 @@ export default function SimulationStudio() {
                         {server.isAutoScaled && (
                           <span className="text-[9px] font-mono px-1.5 py-0.2 bg-amber-500/20 text-amber-300 border border-amber-500/50 rounded font-semibold flex items-center gap-1">
                             <Flame className="w-2.5 h-2.5" />
-                            Auto-Scaled Replica
+                            Auto-Replica
                           </span>
                         )}
                       </div>
@@ -557,7 +431,7 @@ export default function SimulationStudio() {
                       </div>
                     </div>
 
-                    {/* Prominent Counter: Exactly as requested ("And the server should shown How many request each server manage") */}
+                    {/* Total Managed Counter */}
                     <div className="text-right">
                       <div className="p-1 px-2.5 bg-[#141416] border border-[#2d2d30] rounded font-mono text-center">
                         <span className="text-[10px] text-[#858585] block font-sans">Total Managed</span>
@@ -589,7 +463,7 @@ export default function SimulationStudio() {
                     </div>
                   </div>
 
-                  {/* Visual Request Processing: Live animated progress bars for active jobs */}
+                  {/* Active Job Processing Threads */}
                   {serverActiveJobs.length > 0 && (
                     <div className="space-y-1.5 pt-1 border-t border-[#2d2d30]">
                       <span className="text-[10px] font-mono text-[#858585] block">
@@ -598,17 +472,10 @@ export default function SimulationStudio() {
 
                       <div className="space-y-1 max-h-24 overflow-y-auto pr-1">
                         {serverActiveJobs.map(job => (
-                          <div key={job.id} className="p-1.5 bg-[#18181b] border border-[#2d2d30] rounded text-[10px] font-mono space-y-1">
-                            <div className="flex justify-between items-center text-zinc-300">
-                              <span className="text-amber-300 font-semibold">{job.id}</span>
-                              <span className="text-[#a1a1aa]">{job.progress || 0}%</span>
-                            </div>
-                            <div className="h-1 bg-[#141416] rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-linear-to-r from-amber-500 to-emerald-400 transition-all duration-100"
-                                style={{ width: `${job.progress || 0}%` }}
-                              />
-                            </div>
+                          <div key={job.id} className="p-1.5 bg-[#18181b] border border-[#2d2d30] rounded text-[10px] font-mono flex items-center justify-between">
+                            <span className="text-amber-300 font-semibold">{job.id}</span>
+                            <span className="text-zinc-300 truncate max-w-[120px]">{job.title || job.clientName}</span>
+                            <span className="text-emerald-400 font-medium">In-flight</span>
                           </div>
                         ))}
                       </div>
@@ -634,7 +501,7 @@ export default function SimulationStudio() {
           <div className="flex items-center gap-1 bg-[#18181b] p-0.5 rounded border border-[#2d2d30]">
             <button
               onClick={() => setActiveTab('decision')}
-              className={`px-2.5 py-1 text-xs rounded transition-colors ${
+              className={`px-2.5 py-1 text-xs rounded transition-colors cursor-pointer ${
                 activeTab === 'decision' ? 'bg-[#27272a] text-white font-semibold' : 'text-[#858585] hover:text-[#cccccc]'
               }`}
             >
@@ -642,7 +509,7 @@ export default function SimulationStudio() {
             </button>
             <button
               onClick={() => setActiveTab('queue')}
-              className={`px-2.5 py-1 text-xs rounded transition-colors ${
+              className={`px-2.5 py-1 text-xs rounded transition-colors cursor-pointer ${
                 activeTab === 'queue' ? 'bg-[#27272a] text-white font-semibold' : 'text-[#858585] hover:text-[#cccccc]'
               }`}
             >
@@ -650,7 +517,7 @@ export default function SimulationStudio() {
             </button>
             <button
               onClick={() => setActiveTab('stats')}
-              className={`px-2.5 py-1 text-xs rounded transition-colors ${
+              className={`px-2.5 py-1 text-xs rounded transition-colors cursor-pointer ${
                 activeTab === 'stats' ? 'bg-[#27272a] text-white font-semibold' : 'text-[#858585] hover:text-[#cccccc]'
               }`}
             >
@@ -691,7 +558,7 @@ export default function SimulationStudio() {
                   </div>
                   <div className="p-3 bg-[#1e1e1e] border border-[#2d2d30] rounded">
                     <span className="text-[#858585] block text-[11px]">Origin Client</span>
-                    <span className="text-white font-medium">{latestDecision.clientName}</span>
+                    <span className="text-white font-medium">{latestDecision.clientName || latestDecision.userName}</span>
                   </div>
                   <div className="p-3 bg-[#1e1e1e] border border-[#2d2d30] rounded">
                     <span className="text-[#858585] block text-[11px]">Evaluated Rule</span>
@@ -707,7 +574,7 @@ export default function SimulationStudio() {
               </div>
             ) : (
               <div className="p-8 text-center text-xs text-[#858585] border border-dashed border-[#3e3e42] rounded">
-                Click "Run Simulation" above to observe the load balancer routing requests and auto-scaling when overloaded.
+                Awaiting incoming requests. Submit a form in the User Portal (http://localhost:5174) to observe real-time algorithmic allocation.
               </div>
             )}
           </div>
@@ -718,7 +585,7 @@ export default function SimulationStudio() {
             <span className="text-xs text-[#858585]">Pending Request Buffer ({queuedRequests.length}):</span>
             {queuedRequests.length === 0 ? (
               <div className="p-6 text-center text-xs text-[#71717a] border border-dashed border-[#3e3e42] rounded">
-                Queue is empty. Traffic was admitted without bottleneck delays.
+                Queue is empty. All submitted traffic has been immediately admitted to server capacity.
               </div>
             ) : (
               <div className="space-y-1.5 max-h-48 overflow-y-auto">
@@ -736,11 +603,11 @@ export default function SimulationStudio() {
         {activeTab === 'stats' && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
             <div className="p-3 bg-[#1e1e1e] border border-[#2d2d30] rounded">
-              <span className="text-[#858585] block text-[11px]">Total Generated</span>
+              <span className="text-[#858585] block text-[11px]">Total Real Requests</span>
               <span className="text-base font-bold font-mono text-white">{stats.totalRequestsGenerated}</span>
             </div>
             <div className="p-3 bg-[#1e1e1e] border border-[#2d2d30] rounded">
-              <span className="text-[#858585] block text-[11px]">Auto-Scaled Servers</span>
+              <span className="text-[#858585] block text-[11px]">Auto-Scaled Replicas</span>
               <span className="text-base font-bold font-mono text-amber-400">{stats.autoScaledServers}</span>
             </div>
             <div className="p-3 bg-[#1e1e1e] border border-[#2d2d30] rounded">
