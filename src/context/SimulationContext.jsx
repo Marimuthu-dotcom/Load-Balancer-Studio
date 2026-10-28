@@ -36,7 +36,10 @@ import {
   submitRequestToApi,
   updateAlgorithmInApi,
   resetSimulationInApi,
-  loadDemoScenarioInApi
+  loadDemoScenarioInApi,
+  addServerToApi,
+  updateServerInApi,
+  deleteServerFromApi
 } from '../engine/api.js';
 
 const SimulationContext = createContext(null);
@@ -982,31 +985,101 @@ export function SimulationProvider({ children }) {
     setClients(prev => prev.filter(c => c.id !== clientId));
   }, []);
 
-  const addServer = useCallback((server) => {
-    setServers(prev => [...prev, server]);
+  const addServer = useCallback(async (serverData) => {
+    setServers(prev => {
+      const next = [...prev, serverData];
+      saveServers(next);
+      return next;
+    });
+    try {
+      const res = await addServerToApi(serverData);
+      if (res?.servers) {
+        setServers(res.servers);
+        saveServers(res.servers);
+      }
+      return res;
+    } catch (err) {
+      console.error('Failed to create server on backend:', err);
+    }
   }, []);
 
-  const editServer = useCallback((updatedServer) => {
-    setServers(prev => prev.map(s => s.id === updatedServer.id ? { ...s, ...updatedServer } : s));
+  const editServer = useCallback(async (updatedServer) => {
+    setServers(prev => {
+      const next = prev.map(s => s.id === updatedServer.id ? { ...s, ...updatedServer } : s);
+      saveServers(next);
+      return next;
+    });
+    try {
+      const res = await updateServerInApi(updatedServer.id, updatedServer);
+      if (res?.servers) {
+        setServers(res.servers);
+        saveServers(res.servers);
+      }
+      return res;
+    } catch (err) {
+      console.error('Failed to update server on backend:', err);
+    }
   }, []);
 
-  const toggleServerEnabled = useCallback((serverId) => {
-    setServers(prev =>
-      prev.map(s => s.id === serverId ? { ...s, enabled: !s.enabled } : s)
-    );
+  const toggleServerEnabled = useCallback(async (serverId) => {
+    let targetEnabled = true;
+    setServers(prev => {
+      const next = prev.map(s => {
+        if (s.id === serverId) {
+          targetEnabled = !s.enabled;
+          return { ...s, enabled: targetEnabled };
+        }
+        return s;
+      });
+      saveServers(next);
+      return next;
+    });
+    try {
+      await updateServerInApi(serverId, { enabled: targetEnabled });
+    } catch (err) {
+      console.error('Failed to toggle server enabled on backend:', err);
+    }
   }, []);
 
-  const toggleServerPaused = useCallback((serverId) => {
-    setServers(prev =>
-      prev.map(s => s.id === serverId ? { ...s, paused: !s.paused } : s)
-    );
+  const toggleServerPaused = useCallback(async (serverId) => {
+    let targetPaused = true;
+    setServers(prev => {
+      const next = prev.map(s => {
+        if (s.id === serverId) {
+          targetPaused = !s.paused;
+          return { ...s, paused: targetPaused };
+        }
+        return s;
+      });
+      saveServers(next);
+      return next;
+    });
+    try {
+      await updateServerInApi(serverId, { paused: targetPaused });
+    } catch (err) {
+      console.error('Failed to toggle server paused on backend:', err);
+    }
   }, []);
 
-  const deleteServer = useCallback((serverId, forceDraining = false) => {
+  const deleteServer = useCallback(async (serverId, forceDraining = false) => {
     if (forceDraining) {
       setActiveRequests(prev => prev.filter(r => r.serverId !== serverId));
     }
-    setServers(prev => prev.filter(s => s.id !== serverId));
+    setServers(prev => {
+      const next = prev.filter(s => s.id !== serverId);
+      saveServers(next);
+      return next;
+    });
+    try {
+      const res = await deleteServerFromApi(serverId);
+      if (res?.servers) {
+        setServers(res.servers);
+        saveServers(res.servers);
+      }
+      return res;
+    } catch (err) {
+      console.error('Failed to delete server on backend:', err);
+    }
   }, []);
 
   const updateSelectedAlgorithm = useCallback(async (newAlgo) => {

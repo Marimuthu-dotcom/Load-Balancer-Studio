@@ -96,7 +96,7 @@ const PRESET_SERVERS = [
 ];
 
 let state = {
-  servers: [...PRESET_SERVERS],
+  servers: [], // Clean empty default: 0 servers on startup
   requests: [], // authoritative request records
   queuedRequests: [],
   activeRequests: [],
@@ -366,20 +366,40 @@ app.post('/api/requests', (req, res) => {
     algorithm: state.selectedAlgorithm,
     serverId: null,
     serverName: null,
-    decisionExplanation: null
+    decisionExplanation: null,
+    email: req.body.email || null,
+    phone: req.body.phone || null,
+    jobRole: req.body.jobRole || null,
+    experience: req.body.experience || null,
+    skills: req.body.skills || null,
+    whyHire: req.body.whyHire || null
   };
 
   state.requests.unshift(newRequestRecord);
 
-  // If fleet has no servers
-  if (state.servers.length === 0) {
+  // Mandatory Behavior When No Servers Exist (Section 4):
+  // If a user submits a request when 0 servers exist or 0 eligible servers exist:
+  // Backend returns HTTP 503 with user-friendly error message:
+  // "No servers are available. Please contact the administrator to configure a server."
+  const availableServers = state.servers.filter(s => s.enabled && !s.paused);
+  if (state.servers.length === 0 || availableServers.length === 0) {
     newRequestRecord.status = 'rejected';
-    newRequestRecord.decisionExplanation = 'Rejected: Fleet is empty. No servers exist in topology.';
+    newRequestRecord.decisionExplanation = state.servers.length === 0
+      ? 'Rejected: Fleet is empty. No servers configured in Load Balancer.'
+      : 'Rejected: All configured servers are currently disabled or paused.';
+    newRequestRecord.completedAt = Date.now();
+
+    // Emit rejection event via Socket.IO immediately so Management Portal reflects it
+    io.emit('request:rejected', {
+      request: newRequestRecord,
+      stats: getFleetStats()
+    });
+
     return res.status(503).json({
       success: false,
       status: 'rejected',
       request: newRequestRecord,
-      message: 'No servers configured in Load Balancer fleet.'
+      message: 'No servers are available. Please contact the administrator to configure a server.'
     });
   }
 
@@ -534,46 +554,65 @@ app.get('/api/requests/:id', (req, res) => {
 
 // Server Fleet management endpoints
 app.get('/api/servers', (req, res) => {
-  res.json({ servers: state.servers });
+  res.json({ success: true, servers: state.servers });
 });
 
 app.post('/api/servers', (req, res) => {
-  const { id, name, weight = 3, maxCapacity = 10, concurrencyLimit = 3 } = req.body;
-  if (!id || !name) {
-    return res.status(400).json({ error: 'Server ID and Name are required.' });
-  }
-  if (state.servers.some(s => s.id === id)) {
-    return res.status(400).json({ error: 'Server ID already exists.' });
+  const { id, name, address, port, weight = 3, maxCapacity = 10, concurrencyLimit = 3, enabled = true, paused = false } = req.body;
+  if (!name || typeof name !== 'string' || name.trim() === '') {
+    return res.status(400).json({ error: 'Server Name is required.' });
   }
 
+  const generatedId = (id && typeof id === 'string' && id.trim())
+    ? id.trim()
+    : `srv-${Date.now().toString(36).slice(-4)}-${Math.random().toString(36).slice(2, 5)}`;
+
+  if (state.servers.some(s => s.id === generatedId)) {
+    return res.status(400).json({ error: `Server ID "${generatedId}" already exists.` });
+  }
+
+  const numWeight = Math.max(1, parseInt(weight) || 1);
+  const numCap = Math.max(1, parseInt(maxCapacity) || 1);
+  const numConc = Math.max(1, parseInt(concurrencyLimit) || 1);
+  const numPort = port ? parseInt(port) || 8080 : 8080;
+  const srvAddress = address && typeof address === 'string' && address.trim()
+    ? address.trim()
+    : `http://srv-${generatedId}.internal:${numPort}`;
+
   const newServer = {
-    id: id.trim(),
+    id: generatedId,
     name: name.trim(),
-    weight: Math.max(1, parseInt(weight) || 1),
-    maxCapacity: Math.max(1, parseInt(maxCapacity) || 1),
+    address: srvAddress,
+    port: numPort,
+    weight: numWeight,
+    maxCapacity: numCap,
+    concurrencyLimit: numConc,
     currentWorkload: 0,
-    concurrencyLimit: Math.max(1, parseInt(concurrencyLimit) || 1),
     activeRequests: 0,
     totalAssigned: 0,
     completedRequests: 0,
     failedRequests: 0,
-    enabled: true,
-    paused: false,
-    isAutoScaled: false
+    enabled: enabled !== false,
+    paused: Boolean(paused),
+    isAutoScaled: false,
+    createdAt: Date.now()
   };
 
   state.servers.push(newServer);
   io.emit('servers:update', { servers: state.servers, stats: getFleetStats() });
-  res.status(201).json({ success: true, server: newServer });
+  res.status(201).json({ success: true, server: newServer, servers: state.servers });
 });
 
-app.put('/api/servers/:id', (req, res) => {
+const handleServerUpdate = (req, res) => {
   const server = state.servers.find(s => s.id === req.params.id);
   if (!server) {
     return res.status(404).json({ error: 'Server not found.' });
   }
 
-  const { weight, maxCapacity, concurrencyLimit, enabled, paused } = req.body;
+  const { name, address, port, weight, maxCapacity, concurrencyLimit, enabled, paused } = req.body;
+  if (name !== undefined && typeof name === 'string' && name.trim()) server.name = name.trim();
+  if (address !== undefined) server.address = address.trim();
+  if (port !== undefined) server.port = parseInt(port) || 8080;
   if (weight !== undefined) server.weight = Math.max(1, parseInt(weight) || 1);
   if (maxCapacity !== undefined) server.maxCapacity = Math.max(1, parseInt(maxCapacity) || 1);
   if (concurrencyLimit !== undefined) server.concurrencyLimit = Math.max(1, parseInt(concurrencyLimit) || 1);
@@ -581,8 +620,11 @@ app.put('/api/servers/:id', (req, res) => {
   if (paused !== undefined) server.paused = Boolean(paused);
 
   io.emit('servers:update', { servers: state.servers, stats: getFleetStats() });
-  res.json({ success: true, server });
-});
+  res.json({ success: true, server, servers: state.servers });
+};
+
+app.put('/api/servers/:id', handleServerUpdate);
+app.patch('/api/servers/:id', handleServerUpdate);
 
 app.delete('/api/servers/:id', (req, res) => {
   const index = state.servers.findIndex(s => s.id === req.params.id);
@@ -595,7 +637,23 @@ app.delete('/api/servers/:id', (req, res) => {
   state.activeRequests = state.activeRequests.filter(r => r.serverId !== removed.id);
 
   io.emit('servers:update', { servers: state.servers, stats: getFleetStats() });
-  res.json({ success: true, deleted: removed });
+  res.json({ success: true, deleted: removed, servers: state.servers });
+});
+
+app.post('/api/servers/sync', (req, res) => {
+  const { servers } = req.body;
+  if (Array.isArray(servers)) {
+    state.servers = servers.map(s => ({
+      ...s,
+      currentWorkload: s.currentWorkload || 0,
+      activeRequests: s.activeRequests || 0,
+      totalAssigned: s.totalAssigned || 0,
+      completedRequests: s.completedRequests || 0,
+      failedRequests: s.failedRequests || 0
+    }));
+    io.emit('servers:update', { servers: state.servers, stats: getFleetStats() });
+  }
+  res.json({ success: true, servers: state.servers });
 });
 
 // Algorithm selection

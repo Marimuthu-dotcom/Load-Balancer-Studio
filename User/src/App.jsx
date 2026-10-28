@@ -2,8 +2,9 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  * 
- * Standalone Form-Based User Application
- * Normal business website form that sends real 1-to-1 requests to the Load Balancer.
+ * User Portal: Simple Job Application Form
+ * Clean, beginner-friendly career application form that dispatches real 1-to-1 requests
+ * to the Network Load Balancer backend.
  */
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -16,16 +17,17 @@ import {
   XCircle,
   Clock,
   Server,
-  Cpu,
-  Layers,
   RefreshCw,
-  ExternalLink,
   ShieldCheck,
-  FileText,
+  Briefcase,
   User,
   Activity,
-  Zap,
-  Info
+  Info,
+  Mail,
+  Phone,
+  Code,
+  GraduationCap,
+  Sparkles
 } from 'lucide-react';
 
 export const getCandidateApiBases = () => {
@@ -53,25 +55,40 @@ export const getLoadBalancerPortalUrl = () => {
   return 'http://localhost:3000';
 };
 
-const PRESET_USERS = [
-  { id: 'usr-1', name: 'Alex Rivera (Data Analyst)', department: 'Analytics' },
-  { id: 'usr-2', name: 'Elena Chen (Lead Engineer)', department: 'Platform' },
-  { id: 'usr-3', name: 'Marcus Brody (Finance Officer)', department: 'Finance' },
-  { id: 'usr-4', name: 'Sophia Miller (Operations)', department: 'Operations' },
-  { id: 'usr-custom', name: 'Custom User...', department: 'Other' }
+// Dynamic Client ID Generator & Persistent Storage (Section 2 & 5)
+export function getOrAssignClientId() {
+  try {
+    let saved = localStorage.getItem('user_client_id');
+    // If not set or if set to old static strings ('client-a', 'client-b', 'client-c', etc.)
+    if (!saved || saved.toLowerCase() === 'client-a' || saved.toLowerCase() === 'client-b' || saved.toLowerCase() === 'client-c') {
+      const randomNum = Math.floor(1000 + Math.random() * 9000); // e.g. 1042
+      saved = `Client-${randomNum}`;
+      localStorage.setItem('user_client_id', saved);
+    }
+    return saved;
+  } catch {
+    return `Client-${Math.floor(1000 + Math.random() * 9000)}`;
+  }
+}
+
+// 7 Standard Job Roles & Experience Options
+export const JOB_ROLES = [
+  'Frontend Developer',
+  'Backend Developer',
+  'Full Stack Developer',
+  'Software Tester',
+  'UI/UX Designer'
 ];
 
-const REQUEST_TYPES = [
-  { id: 'analytics', label: 'Data Analytics Query', defaultWeight: 2, icon: '📊', estDuration: '2.5s' },
-  { id: 'report', label: 'Executive Financial Report', defaultWeight: 3, icon: '📑', estDuration: '3.0s' },
-  { id: 'upload', label: 'File Ingestion & Indexing', defaultWeight: 2, icon: '📤', estDuration: '2.0s' },
-  { id: 'checkout', label: 'Order Processing Transaction', defaultWeight: 1, icon: '💳', estDuration: '1.5s' },
-  { id: 'batch_compute', label: 'Heavy Batch Compute Job', defaultWeight: 5, icon: '⚡', estDuration: '4.0s' },
-  { id: 'sync', label: 'Database Replication Sync', defaultWeight: 2, icon: '🔄', estDuration: '2.2s' }
+export const EXPERIENCE_LEVELS = [
+  'Fresher',
+  '1–2 Years',
+  '3–5 Years',
+  'More than 5 Years'
 ];
 
 export default function App() {
-  // Configured / Detected API Base
+  // Detected API Base
   const [activeApiBase, setActiveApiBase] = useState(() => {
     if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) {
       return import.meta.env.VITE_API_URL.replace(/\/$/, '');
@@ -79,29 +96,23 @@ export default function App() {
     return '/api';
   });
 
-  // Form State
-  const [selectedUserPreset, setSelectedUserPreset] = useState('usr-1');
-  const [userName, setUserName] = useState('Alex Rivera');
-  const [department, setDepartment] = useState('Analytics');
-  const [requestType, setRequestType] = useState('analytics');
-  const [requestTitle, setRequestTitle] = useState('Monthly Sales Aggregation');
-  const [requestPayload, setRequestPayload] = useState('Aggregate transactions from Q3 for departmental audit.');
-  const [workloadUnits, setWorkloadUnits] = useState(2);
-  const [priority, setPriority] = useState('normal');
+  // Dynamic Browser Profile Client ID
+  const [clientId] = useState(() => getOrAssignClientId());
 
-  // Stable Client Identity stored in localStorage (Client A, Client B, etc.)
-  const [clientId, setClientId] = useState(() => {
-    try {
-      let saved = localStorage.getItem('user_client_id');
-      if (!saved) {
-        saved = 'client-a';
-        localStorage.setItem('user_client_id', saved);
-      }
-      return saved;
-    } catch {
-      return 'client-a';
-    }
-  });
+  // Job Application Form State
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [jobRole, setJobRole] = useState('');
+  const [experience, setExperience] = useState('');
+  const [skills, setSkills] = useState('');
+  const [whyHire, setWhyHire] = useState('');
+
+  // Validation & Feedback State
+  const [formErrors, setFormErrors] = useState({});
+  const [submitSuccess, setSubmitSuccess] = useState(null);
+  const [submitError, setSubmitError] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const clientIdRef = useRef(clientId);
   useEffect(() => {
@@ -109,12 +120,11 @@ export default function App() {
   }, [clientId]);
 
   // Submission & Tracking State - scoped strictly to this client identity
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [lastSubmittedRequest, setLastSubmittedRequest] = useState(null);
   const [trackedRequest, setTrackedRequest] = useState(null);
   const [submissionHistory, setSubmissionHistory] = useState(() => {
     try {
-      const curId = localStorage.getItem('user_client_id') || 'client-a';
+      const curId = getOrAssignClientId();
       const saved = localStorage.getItem(`user_form_history_${curId}`);
       return saved ? JSON.parse(saved) : [];
     } catch {
@@ -134,7 +144,6 @@ export default function App() {
     lastChecked: null,
     errorMessage: null
   });
-  const [submitError, setSubmitError] = useState(null);
   const [socketLive, setSocketLive] = useState(false);
 
   // Poller Ref
@@ -257,48 +266,12 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // Switch client session (Client A, Client B, etc.)
-  const handleSwitchClient = (newId) => {
-    setClientId(newId);
-    try {
-      localStorage.setItem('user_client_id', newId);
-      const saved = localStorage.getItem(`user_form_history_${newId}`);
-      setSubmissionHistory(saved ? JSON.parse(saved) : []);
-    } catch {
-      setSubmissionHistory([]);
-    }
-    setTrackedRequest(null);
-    setLastSubmittedRequest(null);
-  };
-
   // Save history to local storage strictly scoped to this clientId
   useEffect(() => {
     try {
       localStorage.setItem(`user_form_history_${clientId}`, JSON.stringify(submissionHistory));
     } catch {}
   }, [submissionHistory, clientId]);
-
-  // Handle Preset User Change
-  const handleUserPresetChange = (presetId) => {
-    setSelectedUserPreset(presetId);
-    const found = PRESET_USERS.find(u => u.id === presetId);
-    if (found && presetId !== 'usr-custom') {
-      setUserName(found.name.split(' (')[0]);
-      setDepartment(found.department);
-    }
-  };
-
-  // Handle Request Type Change
-  const handleRequestTypeChange = (typeId) => {
-    setRequestType(typeId);
-    const found = REQUEST_TYPES.find(t => t.id === typeId);
-    if (found) {
-      setWorkloadUnits(found.defaultWeight);
-      if (!requestTitle || REQUEST_TYPES.some(t => t.label === requestTitle)) {
-        setRequestTitle(found.label);
-      }
-    }
-  };
 
   // Poll for status of tracked request
   useEffect(() => {
@@ -326,44 +299,84 @@ export default function App() {
     return () => clearInterval(pollTimerRef.current);
   }, [trackedRequest, activeApiBase]);
 
-  // Handle Form Submission: STRICT 1 Form Submit = Exactly 1 Request via Axios
+  // Validate form fields
+  const validateForm = () => {
+    const errors = {};
+    const trimmedName = fullName.trim();
+    const trimmedEmail = email.trim();
+    const trimmedPhone = phone.trim();
+    const trimmedSkills = skills.trim();
+
+    if (!trimmedName) {
+      errors.fullName = 'Full Name is required.';
+    }
+
+    if (!trimmedEmail) {
+      errors.email = 'Email Address is required.';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      errors.email = 'Please enter a valid email address (e.g. name@example.com).';
+    }
+
+    if (!trimmedPhone) {
+      errors.phone = 'Phone Number is required.';
+    } else if (trimmedPhone.replace(/[^0-9]/g, '').length < 7) {
+      errors.phone = 'Please enter a valid phone number (at least 7 digits).';
+    }
+
+    if (!jobRole) {
+      errors.jobRole = 'Please select a job role.';
+    }
+
+    if (!experience) {
+      errors.experience = 'Please select your years of experience.';
+    }
+
+    if (!trimmedSkills) {
+      errors.skills = 'Please enter your key skills.';
+    }
+
+    return errors;
+  };
+
+  // Handle Form Submission: Dispatches 1 real job application to the Load Balancer
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (isSubmitting || !backendStatus.connected || backendStatus.checking) return;
 
     setSubmitError(null);
+    setSubmitSuccess(null);
 
-    // Form validation
-    const trimmedName = userName.trim();
-    const trimmedTitle = requestTitle.trim();
-    if (!trimmedName) {
-      setSubmitError('Please enter a User Full Name.');
+    // Validate fields
+    const errors = validateForm();
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors);
       return;
     }
-    if (!trimmedTitle) {
-      setSubmitError('Please enter a Request Title.');
-      return;
-    }
-    const numUnits = Number(workloadUnits);
-    if (isNaN(numUnits) || numUnits < 1 || numUnits > 5) {
-      setSubmitError('Workload units must be between 1 and 5.');
-      return;
-    }
-
+    setFormErrors({});
     setIsSubmitting(true);
 
     const idempotencyKey = `idemp-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+
+    const trimmedName = fullName.trim();
+    const trimmedEmail = email.trim();
+    const trimmedPhone = phone.trim();
+    const trimmedSkills = skills.trim();
+    const trimmedWhyHire = whyHire.trim();
 
     const payload = {
       clientId,
       clientName: trimmedName,
       userName: trimmedName,
-      department: department.trim() || 'General',
-      requestType,
-      title: trimmedTitle,
-      description: requestPayload.trim() || 'Standard operational workload payload.',
-      workloadUnits: numUnits,
-      priority,
+      email: trimmedEmail,
+      phone: trimmedPhone,
+      jobRole,
+      experience,
+      skills: trimmedSkills,
+      whyHire: trimmedWhyHire,
+      requestType: 'Job Application',
+      title: `Job Application: ${jobRole} (${trimmedName})`,
+      description: `Candidate: ${trimmedName} | Role: ${jobRole} | Exp: ${experience} | Skills: ${trimmedSkills} | Email: ${trimmedEmail}`,
+      workloadUnits: 1, // standard 1 unit for application processing
       idempotencyKey
     };
 
@@ -371,7 +384,8 @@ export default function App() {
       const response = await axios.post(`${activeApiBase}/requests`, payload, {
         headers: {
           'Content-Type': 'application/json',
-          'X-Idempotency-Key': idempotencyKey
+          'X-Idempotency-Key': idempotencyKey,
+          'X-Client-Id': clientId
         },
         timeout: 8000
       });
@@ -379,20 +393,51 @@ export default function App() {
       const result = response.data;
 
       if (!result || !result.success) {
-        throw new Error(result?.error || result?.message || 'Request routing failed');
+        throw new Error(result?.error || result?.message || 'Application submission failed.');
       }
 
       const generatedRequest = result.request;
       setLastSubmittedRequest(generatedRequest);
       setTrackedRequest(generatedRequest);
 
-      // Add to local history (limit to 20)
+      // Display actual submission success
+      setSubmitSuccess(
+        `Application received! Routed to ${generatedRequest.serverName || 'Server Fleet'} using ${generatedRequest.algorithm || backendStatus.currentAlgorithm || 'Round Robin'}.`
+      );
+
+      // Add to local history (scoped to this clientId, limit to 20)
       setSubmissionHistory(prev => [generatedRequest, ...prev.slice(0, 19)]);
     } catch (err) {
-      console.error('Failed to submit user request:', err);
+      console.error('Failed to submit job application:', err);
       const errMsg = err.response?.data?.message || err.response?.data?.error || err.message || 'Unable to communicate with Load Balancer API.';
       setSubmitError(errMsg);
-      // After a failed submission, recheck connection immediately
+      setSubmitSuccess(null);
+
+      // If backend returned a rejected request record (e.g. 503 No servers available), track it accurately
+      if (err.response?.data?.request) {
+        const rejectedReq = err.response.data.request;
+        setTrackedRequest(rejectedReq);
+        setSubmissionHistory(prev => [rejectedReq, ...prev.slice(0, 19)]);
+      } else if (err.response?.status === 503) {
+        const syntheticRejected = {
+          id: `req-rej-${Date.now().toString(36).slice(-4)}`,
+          clientId,
+          clientName: trimmedName,
+          userName: trimmedName,
+          jobRole,
+          title: `Job Application: ${jobRole} (${trimmedName})`,
+          status: 'rejected',
+          createdAt: Date.now(),
+          completedAt: Date.now(),
+          workloadUnits: 1,
+          decisionExplanation: errMsg,
+          serverName: 'None'
+        };
+        setTrackedRequest(syntheticRejected);
+        setSubmissionHistory(prev => [syntheticRejected, ...prev.slice(0, 19)]);
+      }
+
+      // Recheck backend health after error
       checkBackend();
     } finally {
       setIsSubmitting(false);
@@ -412,42 +457,42 @@ export default function App() {
       <header className="border-b border-[#2d2d30] bg-[#252526] px-6 py-3.5 flex items-center justify-between shadow-sm sticky top-0 z-30">
         <div className="flex items-center space-x-3">
           <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 font-mono font-bold text-base">
-            U
+            <Briefcase size={17} />
           </div>
           <div>
             <h1 className="text-base font-semibold text-white tracking-tight flex items-center gap-2">
-              Enterprise Client Request Portal
+              Job Application Portal
               <span className="text-xs font-normal px-2 py-0.5 rounded bg-blue-500/15 text-blue-400 border border-blue-500/30 font-mono">
                 Port 5174
               </span>
             </h1>
             <p className="text-xs text-[#888888]">
-              Standard end-user application &bull; Dispatches individual transactional requests to Load Balancer
+              Simple Job Application Demonstration &bull; Dispatches real application requests to the Network Load Balancer
             </p>
           </div>
         </div>
 
-        {/* Backend & Socket.IO Connectivity Status */}
+        {/* Backend Connectivity & Dynamic Client ID Badge */}
         <div className="flex items-center gap-2 sm:gap-3">
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-[#1e1e1e] border border-[#333333] text-xs">
             {backendStatus.checking ? (
               <>
                 <RefreshCw size={13} className="text-amber-400 animate-spin" />
-                <span className="text-[#a0a0a0]">Load Balancer API:</span>
+                <span className="text-[#a0a0a0]">Load Balancer:</span>
                 <span className="text-amber-400 font-medium">Checking Connection...</span>
               </>
             ) : backendStatus.connected ? (
               <>
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="text-[#a0a0a0]">Load Balancer API:</span>
+                <span className="text-[#a0a0a0]">Load Balancer:</span>
                 <span className="text-emerald-400 font-medium">
-                  Connected ({backendStatus.serverCount} Servers)
+                  Online ({backendStatus.serverCount} Servers)
                 </span>
               </>
             ) : (
               <>
                 <span className="w-2 h-2 rounded-full bg-rose-500" />
-                <span className="text-[#a0a0a0]">Load Balancer API:</span>
+                <span className="text-[#a0a0a0]">Load Balancer:</span>
                 <span className="text-rose-400 font-medium">API Unreachable</span>
                 <button
                   type="button"
@@ -473,23 +518,11 @@ export default function App() {
             <span>{socketLive ? 'Real-Time Sync' : 'Polling Mode'}</span>
           </div>
 
-          {/* Client Session Selector */}
-          <div className="flex items-center gap-1.5 bg-[#1e1e1e] border border-[#3e3e42] px-2.5 py-1.5 rounded-md text-xs">
+          {/* Read-Only Dynamic Client ID Badge */}
+          <div className="flex items-center gap-1.5 bg-[#1e1e1e] border border-amber-500/40 px-3 py-1.5 rounded-md text-xs shadow-xs">
             <User size={13} className="text-amber-400" />
-            <span className="text-[#888] hidden md:inline">Client:</span>
-            <select
-              value={clientId}
-              onChange={(e) => handleSwitchClient(e.target.value)}
-              className="bg-transparent text-white font-mono font-semibold focus:outline-none cursor-pointer"
-              title="Current client session identity"
-            >
-              <option value="client-a" className="bg-[#252526]">Client A</option>
-              <option value="client-b" className="bg-[#252526]">Client B</option>
-              <option value="client-c" className="bg-[#252526]">Client C</option>
-              {clientId !== 'client-a' && clientId !== 'client-b' && clientId !== 'client-c' && (
-                <option value={clientId} className="bg-[#252526]">{clientId}</option>
-              )}
-            </select>
+            <span className="text-[#888] hidden md:inline">Assigned Client:</span>
+            <span className="text-amber-400 font-mono font-bold">{clientId}</span>
           </div>
         </div>
       </header>
@@ -497,188 +530,245 @@ export default function App() {
       {/* Main Grid: Form on Left, Real-time Tracker & History on Right */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 grid grid-cols-1 lg:grid-cols-12 gap-6">
         
-        {/* Left Column: The Standard Business Form (7 Cols) */}
+        {/* Left Column: Simple Job Application Form (7 Cols) */}
         <div className="lg:col-span-7 space-y-6">
           <div className="bg-[#252526] rounded-xl border border-[#333333] shadow-lg overflow-hidden">
             {/* Form Header */}
             <div className="px-6 py-4 border-b border-[#333333] bg-[#2a2d2e] flex items-center justify-between">
               <div>
                 <h2 className="text-sm font-semibold text-white flex items-center gap-2">
-                  <FileText size={16} className="text-amber-400" />
-                  Service Request Form
+                  <Briefcase size={16} className="text-amber-400" />
+                  Job Application Form
                 </h2>
                 <p className="text-xs text-[#8c8c8c] mt-0.5">
-                  Submit a discrete task to the backend fleet. 1 submission generates exactly 1 load balancer request.
+                  Apply for open engineering & design roles. Submitting routes your application through the Load Balancer.
                 </p>
               </div>
               <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-[#1e1e1e] text-[#a0a0a0] border border-[#3c3c3c]">
-                Mode: Form Submission
+                Mode: Live Demonstration
               </span>
             </div>
 
             {/* Form Body */}
             <form onSubmit={handleSubmit} className="p-6 space-y-5">
               
-              {/* Row 1: Identity & Department */}
+              {/* Field 1: Full Name */}
+              <div>
+                <label className="block text-xs font-medium text-[#cccccc] mb-1.5 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <User size={13} className="text-amber-400" />
+                    Full Name <span className="text-rose-400">*</span>
+                  </span>
+                  <span className="text-[11px] text-[#777]">Applicant's legal name</span>
+                </label>
+                <input
+                  type="text"
+                  value={fullName}
+                  onChange={(e) => {
+                    setFullName(e.target.value);
+                    if (formErrors.fullName) setFormErrors(prev => ({ ...prev, fullName: null }));
+                  }}
+                  placeholder="e.g. Alex Johnson"
+                  className={`w-full bg-[#1e1e1e] border ${
+                    formErrors.fullName ? 'border-rose-500' : 'border-[#3c3c3c] focus:border-amber-500'
+                  } focus:ring-1 focus:ring-amber-500 rounded-md px-3 py-2 text-xs text-white placeholder-[#555]`}
+                />
+                {formErrors.fullName && (
+                  <p className="text-xs text-rose-400 mt-1 flex items-center gap-1">
+                    <AlertTriangle size={12} className="shrink-0" /> {formErrors.fullName}
+                  </p>
+                )}
+              </div>
+
+              {/* Field 2 & 3: Email Address & Phone Number */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-medium text-[#cccccc] mb-1.5 flex items-center gap-1.5">
-                    <User size={13} className="text-amber-400" />
-                    Requester Identity / Profile
+                    <Mail size={13} className="text-amber-400" />
+                    Email Address <span className="text-rose-400">*</span>
+                  </label>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => {
+                      setEmail(e.target.value);
+                      if (formErrors.email) setFormErrors(prev => ({ ...prev, email: null }));
+                    }}
+                    placeholder="e.g. alex.johnson@example.com"
+                    className={`w-full bg-[#1e1e1e] border ${
+                      formErrors.email ? 'border-rose-500' : 'border-[#3c3c3c] focus:border-amber-500'
+                    } focus:ring-1 focus:ring-amber-500 rounded-md px-3 py-2 text-xs text-white placeholder-[#555]`}
+                  />
+                  {formErrors.email && (
+                    <p className="text-xs text-rose-400 mt-1 flex items-center gap-1">
+                      <AlertTriangle size={12} className="shrink-0" /> {formErrors.email}
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-[#cccccc] mb-1.5 flex items-center gap-1.5">
+                    <Phone size={13} className="text-amber-400" />
+                    Phone Number <span className="text-rose-400">*</span>
+                  </label>
+                  <input
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => {
+                      setPhone(e.target.value);
+                      if (formErrors.phone) setFormErrors(prev => ({ ...prev, phone: null }));
+                    }}
+                    placeholder="e.g. +1 (555) 234-5678"
+                    className={`w-full bg-[#1e1e1e] border ${
+                      formErrors.phone ? 'border-rose-500' : 'border-[#3c3c3c] focus:border-amber-500'
+                    } focus:ring-1 focus:ring-amber-500 rounded-md px-3 py-2 text-xs text-white placeholder-[#555]`}
+                  />
+                  {formErrors.phone && (
+                    <p className="text-xs text-rose-400 mt-1 flex items-center gap-1">
+                      <AlertTriangle size={12} className="shrink-0" /> {formErrors.phone}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Field 4 & 5: Job Role & Years of Experience */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-[#cccccc] mb-1.5 flex items-center gap-1.5">
+                    <Briefcase size={13} className="text-amber-400" />
+                    Job Role <span className="text-rose-400">*</span>
                   </label>
                   <select
-                    value={selectedUserPreset}
-                    onChange={(e) => handleUserPresetChange(e.target.value)}
-                    className="w-full bg-[#1e1e1e] border border-[#3c3c3c] focus:border-amber-500 focus:ring-1 focus:ring-amber-500 rounded-md px-3 py-2 text-xs text-white"
+                    value={jobRole}
+                    onChange={(e) => {
+                      setJobRole(e.target.value);
+                      if (formErrors.jobRole) setFormErrors(prev => ({ ...prev, jobRole: null }));
+                    }}
+                    className={`w-full bg-[#1e1e1e] border ${
+                      formErrors.jobRole ? 'border-rose-500' : 'border-[#3c3c3c] focus:border-amber-500'
+                    } focus:ring-1 focus:ring-amber-500 rounded-md px-3 py-2 text-xs text-white cursor-pointer`}
                   >
-                    {PRESET_USERS.map(u => (
-                      <option key={u.id} value={u.id}>
-                        {u.name}
+                    <option value="" disabled className="bg-[#252526]">Select a job role...</option>
+                    {JOB_ROLES.map(role => (
+                      <option key={role} value={role} className="bg-[#252526]">
+                        {role}
                       </option>
                     ))}
                   </select>
+                  {formErrors.jobRole && (
+                    <p className="text-xs text-rose-400 mt-1 flex items-center gap-1">
+                      <AlertTriangle size={12} className="shrink-0" /> {formErrors.jobRole}
+                    </p>
+                  )}
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-[#cccccc] mb-1.5">
-                    User Full Name
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={userName}
-                    onChange={(e) => setUserName(e.target.value)}
-                    placeholder="e.g. Alex Rivera"
-                    className="w-full bg-[#1e1e1e] border border-[#3c3c3c] focus:border-amber-500 focus:ring-1 focus:ring-amber-500 rounded-md px-3 py-2 text-xs text-white placeholder-[#555]"
-                  />
-                </div>
-              </div>
-
-              {/* Row 2: Department & Priority */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-medium text-[#cccccc] mb-1.5">
-                    Department / Business Unit
-                  </label>
-                  <input
-                    type="text"
-                    value={department}
-                    onChange={(e) => setDepartment(e.target.value)}
-                    placeholder="e.g. Analytics, Finance"
-                    className="w-full bg-[#1e1e1e] border border-[#3c3c3c] focus:border-amber-500 focus:ring-1 focus:ring-amber-500 rounded-md px-3 py-2 text-xs text-white placeholder-[#555]"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-[#cccccc] mb-1.5">
-                    Traffic Priority
+                  <label className="block text-xs font-medium text-[#cccccc] mb-1.5 flex items-center gap-1.5">
+                    <GraduationCap size={13} className="text-amber-400" />
+                    Years of Experience <span className="text-rose-400">*</span>
                   </label>
                   <select
-                    value={priority}
-                    onChange={(e) => setPriority(e.target.value)}
-                    className="w-full bg-[#1e1e1e] border border-[#3c3c3c] focus:border-amber-500 focus:ring-1 focus:ring-amber-500 rounded-md px-3 py-2 text-xs text-white"
+                    value={experience}
+                    onChange={(e) => {
+                      setExperience(e.target.value);
+                      if (formErrors.experience) setFormErrors(prev => ({ ...prev, experience: null }));
+                    }}
+                    className={`w-full bg-[#1e1e1e] border ${
+                      formErrors.experience ? 'border-rose-500' : 'border-[#3c3c3c] focus:border-amber-500'
+                    } focus:ring-1 focus:ring-amber-500 rounded-md px-3 py-2 text-xs text-white cursor-pointer`}
                   >
-                    <option value="normal">Standard Priority</option>
-                    <option value="high">High Priority (SLA 99.9%)</option>
-                    <option value="batch">Low / Background Batch</option>
+                    <option value="" disabled className="bg-[#252526]">Select experience level...</option>
+                    {EXPERIENCE_LEVELS.map(level => (
+                      <option key={level} value={level} className="bg-[#252526]">
+                        {level}
+                      </option>
+                    ))}
                   </select>
+                  {formErrors.experience && (
+                    <p className="text-xs text-rose-400 mt-1 flex items-center gap-1">
+                      <AlertTriangle size={12} className="shrink-0" /> {formErrors.experience}
+                    </p>
+                  )}
                 </div>
               </div>
 
-              {/* Row 3: Request Type Selection */}
+              {/* Field 6: Skills */}
               <div>
-                <label className="block text-xs font-medium text-[#cccccc] mb-2 flex items-center justify-between">
+                <label className="block text-xs font-medium text-[#cccccc] mb-1.5 flex items-center justify-between">
                   <span className="flex items-center gap-1.5">
-                    <Zap size={13} className="text-amber-400" />
-                    Request Operation Type
+                    <Code size={13} className="text-amber-400" />
+                    Skills <span className="text-rose-400">*</span>
                   </span>
-                  <span className="text-[11px] text-[#888]">Selects typical payload & weight</span>
+                  <span className="text-[11px] text-[#777]">Comma-separated</span>
                 </label>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  {REQUEST_TYPES.map(t => (
-                    <button
-                      key={t.id}
-                      type="button"
-                      onClick={() => handleRequestTypeChange(t.id)}
-                      className={`p-2.5 rounded-lg border text-left transition-all flex flex-col justify-between ${
-                        requestType === t.id
-                          ? 'border-amber-500 bg-amber-500/10 text-white ring-1 ring-amber-500/30'
-                          : 'border-[#333333] bg-[#1e1e1e] text-[#a0a0a0] hover:border-[#444444] hover:text-[#cccccc]'
-                      }`}
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-sm">{t.icon}</span>
-                        <span className="text-xs font-medium truncate">{t.label}</span>
-                      </div>
-                      <div className="mt-2 flex items-center justify-between text-[10px] text-[#777] font-mono">
-                        <span>{t.defaultWeight} units</span>
-                        <span>{t.estDuration}</span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Row 4: Title & Workload Units */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-medium text-[#cccccc] mb-1.5">
-                    Request Title / Subject
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={requestTitle}
-                    onChange={(e) => setRequestTitle(e.target.value)}
-                    placeholder="e.g. Sales Aggregate Report"
-                    className="w-full bg-[#1e1e1e] border border-[#3c3c3c] focus:border-amber-500 focus:ring-1 focus:ring-amber-500 rounded-md px-3 py-2 text-xs text-white placeholder-[#555]"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-[#cccccc] mb-1.5 flex items-center justify-between">
-                    <span>Workload Units</span>
-                    <span className="text-[10px] font-mono text-amber-400">{workloadUnits} / 10 max</span>
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="range"
-                      min="1"
-                      max="5"
-                      step="1"
-                      value={workloadUnits}
-                      onChange={(e) => setWorkloadUnits(Number(e.target.value))}
-                      className="w-full accent-amber-500 cursor-pointer h-1.5 bg-[#333] rounded"
-                    />
-                    <span className="w-8 text-center text-xs font-mono font-bold text-amber-400 bg-[#1e1e1e] border border-[#333] py-1 rounded">
-                      {workloadUnits}
-                    </span>
-                  </div>
-                  <p className="text-[10px] text-[#777] mt-1">
-                    Workload reserved on assigned server
+                <input
+                  type="text"
+                  value={skills}
+                  onChange={(e) => {
+                    setSkills(e.target.value);
+                    if (formErrors.skills) setFormErrors(prev => ({ ...prev, skills: null }));
+                  }}
+                  placeholder="e.g. JavaScript, React, Node.js, CSS"
+                  className={`w-full bg-[#1e1e1e] border ${
+                    formErrors.skills ? 'border-rose-500' : 'border-[#3c3c3c] focus:border-amber-500'
+                  } focus:ring-1 focus:ring-amber-500 rounded-md px-3 py-2 text-xs text-white placeholder-[#555]`}
+                />
+                {formErrors.skills && (
+                  <p className="text-xs text-rose-400 mt-1 flex items-center gap-1">
+                    <AlertTriangle size={12} className="shrink-0" /> {formErrors.skills}
                   </p>
-                </div>
+                )}
+                <p className="text-[11px] text-[#777] mt-1">
+                  List your core technologies and programming languages.
+                </p>
               </div>
 
-              {/* Row 5: Detailed Payload */}
+              {/* Field 7: Why should we hire you? (Optional) */}
               <div>
-                <label className="block text-xs font-medium text-[#cccccc] mb-1.5">
-                  Payload Specification / Parameters
+                <label className="block text-xs font-medium text-[#cccccc] mb-1.5 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <Sparkles size={13} className="text-amber-400" />
+                    Why should we hire you?
+                  </span>
+                  <span className="text-[11px] text-[#777]">Optional</span>
                 </label>
                 <textarea
-                  rows={2}
-                  value={requestPayload}
-                  onChange={(e) => setRequestPayload(e.target.value)}
-                  placeholder="Enter JSON parameters, query filters, or payload descriptions..."
-                  className="w-full bg-[#1e1e1e] border border-[#3c3c3c] focus:border-amber-500 focus:ring-1 focus:ring-amber-500 rounded-md px-3 py-2 text-xs text-white placeholder-[#555] font-mono"
+                  rows={3}
+                  value={whyHire}
+                  onChange={(e) => setWhyHire(e.target.value)}
+                  placeholder="Tell us briefly why you would be a great fit for this role and what excites you about building impactful software..."
+                  className="w-full bg-[#1e1e1e] border border-[#3c3c3c] focus:border-amber-500 focus:ring-1 focus:ring-amber-500 rounded-md px-3 py-2 text-xs text-white placeholder-[#555]"
                 />
               </div>
 
-              {/* Error Notice */}
+              {/* Success Notification Banner */}
+              {submitSuccess && (
+                <div className="p-3.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-start justify-between gap-2 shadow-xs">
+                  <div className="flex items-start gap-2">
+                    <CheckCircle2 size={16} className="shrink-0 text-emerald-400 mt-0.5" />
+                    <div>
+                      <span className="font-semibold text-emerald-300 block">Application Accepted by Load Balancer</span>
+                      <span className="text-emerald-400/90 text-[11px]">{submitSuccess}</span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSubmitSuccess(null)}
+                    className="text-emerald-400 hover:text-white font-mono text-xs ml-2 cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+
+              {/* Error Notice Banner */}
               {submitError && (
-                <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
-                  <AlertTriangle size={15} className="shrink-0 text-rose-400" />
-                  <span>{submitError}</span>
+                <div className="p-3.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-start gap-2 shadow-xs">
+                  <AlertTriangle size={16} className="shrink-0 text-rose-400 mt-0.5" />
+                  <div>
+                    <span className="font-semibold text-rose-300 block">Submission Failed</span>
+                    <span className="text-rose-400/90 text-[11px]">{submitError}</span>
+                  </div>
                 </div>
               )}
 
@@ -692,7 +782,7 @@ export default function App() {
                 <button
                   type="submit"
                   disabled={isSubmitting || !backendStatus.connected || backendStatus.checking}
-                  className={`w-full sm:w-auto px-6 py-2.5 rounded-lg text-xs font-medium flex items-center justify-center gap-2 transition-all shadow-md ${
+                  className={`w-full sm:w-auto px-6 py-2.5 rounded-lg text-xs font-medium flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer ${
                     isSubmitting
                       ? 'bg-amber-500/40 text-amber-200 cursor-not-allowed'
                       : backendStatus.checking
@@ -705,7 +795,7 @@ export default function App() {
                   {isSubmitting ? (
                     <>
                       <RefreshCw size={14} className="animate-spin" />
-                      <span>Dispatching Request...</span>
+                      <span>Submitting Application...</span>
                     </>
                   ) : backendStatus.checking ? (
                     <>
@@ -720,7 +810,7 @@ export default function App() {
                   ) : (
                     <>
                       <Send size={14} />
-                      <span>Submit Request</span>
+                      <span>Submit Application</span>
                     </>
                   )}
                 </button>
@@ -734,10 +824,10 @@ export default function App() {
             <div className="space-y-1">
               <p className="text-white font-medium">How This Connects to the Load Balancer:</p>
               <p>
-                When you click <strong>Submit Request</strong>, a real HTTP POST is dispatched to{' '}
+                When you click <strong>Submit Application</strong>, a real HTTP POST request is dispatched to{' '}
                 <code className="text-amber-300 bg-[#1e1e1e] px-1 py-0.5 rounded font-mono">/api/requests</code>.
-                The authoritative load balancer evaluates server capacities, weights, and active concurrency to route your request to an optimal server.
-                Check the <strong>Load Balancer Management Portal</strong> to watch it process in real time!
+                The authoritative load balancer evaluates server capacities, weights, and active concurrency to route your application to an optimal backend server.
+                Check the <strong>Load Balancer Management Portal (Port 3000)</strong> to watch it process in real time!
               </p>
             </div>
           </div>
@@ -751,7 +841,7 @@ export default function App() {
             <div className="px-5 py-3.5 border-b border-[#333333] bg-[#2a2d2e] flex items-center justify-between">
               <h2 className="text-xs font-semibold text-white uppercase tracking-wider flex items-center gap-2">
                 <Activity size={14} className="text-amber-400" />
-                Live Request Status Tracker
+                Live Application Status Tracker
               </h2>
               {trackedRequest && (
                 <span className="text-[10px] font-mono text-[#888]">
@@ -764,8 +854,8 @@ export default function App() {
               {!trackedRequest ? (
                 <div className="py-8 text-center text-[#666666] space-y-2">
                   <Clock size={28} className="mx-auto text-[#444444]" />
-                  <p className="text-xs">No active request being tracked.</p>
-                  <p className="text-[11px] text-[#555]">Submit the form on the left to inspect live routing & processing.</p>
+                  <p className="text-xs">No active application being tracked.</p>
+                  <p className="text-[11px] text-[#555]">Submit a job application on the left to inspect live server routing & processing.</p>
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -789,10 +879,10 @@ export default function App() {
                           {trackedRequest.status === 'processing' ? 'Processing on Server' : trackedRequest.status}
                         </div>
                         <div className="text-[10px] text-[#888]">
-                          {trackedRequest.status === 'processing' && 'Server is executing computational workload'}
-                          {trackedRequest.status === 'completed' && 'Transaction completed successfully'}
+                          {trackedRequest.status === 'processing' && 'Server is processing application data'}
+                          {trackedRequest.status === 'completed' && 'Application processed and stored successfully'}
                           {trackedRequest.status === 'queued' && 'Queued waiting for server capacity'}
-                          {trackedRequest.status === 'rejected' && 'Admission capacity exceeded'}
+                          {trackedRequest.status === 'rejected' && 'Admission capacity exceeded or no servers available'}
                         </div>
                       </div>
                     </div>
@@ -826,28 +916,28 @@ export default function App() {
 
                     <div className="p-2.5 rounded bg-[#1e1e1e] border border-[#2d2d30]">
                       <div className="text-[10px] text-[#777] uppercase tracking-wider mb-1 flex items-center gap-1">
-                        <Cpu size={11} className="text-amber-400" />
-                        Reserved Workload
+                        <Briefcase size={11} className="text-amber-400" />
+                        Job Role Applied
                       </div>
-                      <div className="font-mono font-medium text-amber-400">
-                        {trackedRequest.workloadUnits || 1} units
+                      <div className="font-medium text-amber-400 truncate">
+                        {trackedRequest.jobRole || (trackedRequest.title ? trackedRequest.title.replace('Job Application: ', '').split(' (')[0] : 'Engineer')}
                       </div>
                     </div>
 
                     <div className="p-2.5 rounded bg-[#1e1e1e] border border-[#2d2d30]">
                       <div className="text-[10px] text-[#777] uppercase tracking-wider mb-1 flex items-center gap-1">
-                        <Layers size={11} className="text-amber-400" />
-                        Routing Algorithm
+                        <User size={11} className="text-amber-400" />
+                        Candidate Name
                       </div>
                       <div className="text-white text-[11px] truncate">
-                        {trackedRequest.algorithm || 'Round Robin'}
+                        {trackedRequest.userName || trackedRequest.clientName || 'Applicant'}
                       </div>
                     </div>
 
                     <div className="p-2.5 rounded bg-[#1e1e1e] border border-[#2d2d30]">
                       <div className="text-[10px] text-[#777] uppercase tracking-wider mb-1 flex items-center gap-1">
                         <Clock size={11} className="text-amber-400" />
-                        Processing Time
+                        Processing Duration
                       </div>
                       <div className="font-mono text-white text-[11px]">
                         {trackedRequest.durationMs ? `${trackedRequest.durationMs}ms` : 'Calculating...'}
@@ -872,13 +962,13 @@ export default function App() {
             <div className="px-5 py-3.5 border-b border-[#333333] bg-[#2a2d2e] flex items-center justify-between">
               <h2 className="text-xs font-semibold text-white uppercase tracking-wider flex items-center gap-2">
                 <Clock size={14} className="text-amber-400" />
-                Recent Submissions History ({submissionHistory.length})
+                Recent Applications History ({submissionHistory.length})
               </h2>
               {submissionHistory.length > 0 && (
                 <button
                   type="button"
                   onClick={clearHistory}
-                  className="text-[11px] text-[#777] hover:text-rose-400 transition-colors"
+                  className="text-[11px] text-[#777] hover:text-rose-400 transition-colors cursor-pointer"
                 >
                   Clear
                 </button>
@@ -888,7 +978,7 @@ export default function App() {
             <div className="p-4 max-h-[340px] overflow-y-auto space-y-2">
               {submissionHistory.length === 0 ? (
                 <div className="py-6 text-center text-[#666666] text-xs">
-                  No submissions yet. Submitting requests from this form will record their server routing here.
+                  No applications submitted yet. Submitting an application will record its server routing here.
                 </div>
               ) : (
                 submissionHistory.map((item) => (
@@ -902,7 +992,7 @@ export default function App() {
                     }`}
                   >
                     <div className="flex items-center justify-between mb-1">
-                      <span className="font-medium text-white truncate max-w-[180px]">
+                      <span className="font-medium text-white truncate max-w-[200px]" title={item.title}>
                         {item.title || item.clientName}
                       </span>
                       <span
@@ -923,10 +1013,10 @@ export default function App() {
                     <div className="flex items-center justify-between text-[11px] text-[#888]">
                       <span className="flex items-center gap-1">
                         <Server size={11} className="text-amber-400/80" />
-                        {item.serverName || 'Pending'}
+                        {item.serverName || (item.status === 'rejected' ? 'None' : 'Pending')}
                       </span>
                       <span className="font-mono text-[10px]">
-                        {item.workloadUnits || 1} units &bull; {new Date(item.createdAt || Date.now()).toLocaleTimeString()}
+                        {new Date(item.createdAt || Date.now()).toLocaleTimeString()}
                       </span>
                     </div>
                   </div>
@@ -940,8 +1030,8 @@ export default function App() {
 
       {/* Footer */}
       <footer className="border-t border-[#2d2d30] bg-[#252526] px-6 py-3 text-xs text-[#777] flex items-center justify-between">
-        <div>Network Load Balancer &bull; Real-Time Client Application</div>
-        <div className="font-mono text-[11px] text-[#666]">Port 5174 &bull; HTTP REST API</div>
+        <div>Network Load Balancer &bull; Real-Time Job Application Portal</div>
+        <div className="font-mono text-[11px] text-[#666]">Port 5174 &bull; HTTP REST API &bull; Dynamic Client ID: {clientId}</div>
       </footer>
     </div>
   );

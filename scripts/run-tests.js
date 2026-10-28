@@ -29,7 +29,7 @@ console.log(`Execution Time  : ${suite.timestamp}`);
 console.log('----------------------------------------------------');
 
 if (suite.allPassed) {
-  console.log('STATUS: ALL 22 TESTS PASSED SUCCESSFULLY.\n');
+  console.log(`STATUS: ALL ${suite.total} TESTS PASSED SUCCESSFULLY.\n`);
   process.exit(0);
 } else {
   console.error('STATUS: TEST SUITE FAILED.\n');

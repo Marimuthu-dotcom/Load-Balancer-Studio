@@ -158,10 +158,16 @@ export function saveClients(clients) {
 
 export function loadServers() {
   const loaded = loadFromStorage(STORAGE_KEYS.SERVERS, DEFAULT_SERVERS);
-  // Ensure transient activeRequests is sanitized to 0 on initial app load if stale
-  return loaded.map(s => ({
+  // Guarantee default servers (Server A/B/C) are never restored automatically
+  const filtered = (loaded || []).filter(s => !(
+    (s.id === 'srv-a' && s.name?.includes('Server A')) ||
+    (s.id === 'srv-b' && s.name?.includes('Server B')) ||
+    (s.id === 'srv-c' && s.name?.includes('Server C'))
+  ));
+  return filtered.map(s => ({
     ...s,
-    activeRequests: 0
+    activeRequests: 0,
+    currentWorkload: 0
   }));
 }
 

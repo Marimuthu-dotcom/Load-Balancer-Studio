@@ -44,18 +44,25 @@ export default function ServerManagement() {
   // Form Fields
   const [formId, setFormId] = useState('');
   const [formName, setFormName] = useState('');
+  const [formAddress, setFormAddress] = useState('http://192.168.1.10:8080');
+  const [formPort, setFormPort] = useState(8080);
   const [formWeight, setFormWeight] = useState(3);
   const [formMaxCapacity, setFormMaxCapacity] = useState(8);
   const [formConcurrencyLimit, setFormConcurrencyLimit] = useState(3);
   const [formEnabled, setFormEnabled] = useState(true);
   const [formPaused, setFormPaused] = useState(false);
   const [formErrors, setFormErrors] = useState([]);
+  const [successToast, setSuccessToast] = useState(null);
 
   const openAddModal = () => {
     const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
     const nextLetter = letters[servers.length] || `X${servers.length + 1}`;
-    setFormId(`srv-${nextLetter.toLowerCase()}`);
-    setFormName(`Server ${nextLetter} (Custom)`);
+    const generatedId = `srv-${Date.now().toString(36).slice(-3)}-${servers.length + 1}`;
+    setFormId(generatedId);
+    setFormName(`Server ${nextLetter}`);
+    const nextPort = 8080 + servers.length;
+    setFormAddress(`http://192.168.1.${10 + servers.length}:${nextPort}`);
+    setFormPort(nextPort);
     setFormWeight(3);
     setFormMaxCapacity(8);
     setFormConcurrencyLimit(3);
@@ -69,19 +76,23 @@ export default function ServerManagement() {
     setEditingServer(server);
     setFormId(server.id);
     setFormName(server.name);
+    setFormAddress(server.address || `http://192.168.1.10:${server.port || 8080}`);
+    setFormPort(server.port || 8080);
     setFormWeight(server.weight);
     setFormMaxCapacity(server.maxCapacity);
     setFormConcurrencyLimit(server.concurrencyLimit);
-    setFormEnabled(server.enabled);
-    setFormPaused(server.paused);
+    setFormEnabled(server.enabled !== false);
+    setFormPaused(Boolean(server.paused));
     setFormErrors([]);
   };
 
-  const handleSaveServer = (e) => {
+  const handleSaveServer = async (e) => {
     e.preventDefault();
     const serverData = {
       id: formId.trim(),
       name: formName.trim(),
+      address: formAddress.trim(),
+      port: Number(formPort) || 8080,
       weight: Number(formWeight),
       maxCapacity: Number(formMaxCapacity),
       concurrencyLimit: Number(formConcurrencyLimit),
@@ -97,9 +108,11 @@ export default function ServerManagement() {
     }
 
     if (editingServer) {
-      editServer({
+      await editServer({
         ...editingServer,
         name: serverData.name,
+        address: serverData.address,
+        port: serverData.port,
         weight: serverData.weight,
         maxCapacity: serverData.maxCapacity,
         concurrencyLimit: serverData.concurrencyLimit,
@@ -107,10 +120,14 @@ export default function ServerManagement() {
         paused: serverData.paused
       });
       setEditingServer(null);
+      setSuccessToast(`Server "${serverData.name}" updated successfully.`);
+      setTimeout(() => setSuccessToast(null), 3500);
     } else {
-      addServer({
+      await addServer({
         id: serverData.id,
         name: serverData.name,
+        address: serverData.address,
+        port: serverData.port,
         weight: serverData.weight,
         maxCapacity: serverData.maxCapacity,
         concurrencyLimit: serverData.concurrencyLimit,
@@ -122,13 +139,18 @@ export default function ServerManagement() {
         failedRequests: 0
       });
       setIsAddModalOpen(false);
+      setSuccessToast(`Server "${serverData.name}" created and online.`);
+      setTimeout(() => setSuccessToast(null), 3500);
     }
   };
 
-  const handleDeleteServerConfirm = () => {
+  const handleDeleteServerConfirm = async () => {
     if (!deletingServer) return;
-    deleteServer(deletingServer.id, forceDrainCheck);
+    const deletedName = deletingServer.name;
+    await deleteServer(deletingServer.id, forceDrainCheck);
     setDeletingServer(null);
+    setSuccessToast(`Server "${deletedName}" removed from load balancer fleet.`);
+    setTimeout(() => setSuccessToast(null), 3500);
   };
 
   return (
@@ -154,21 +176,37 @@ export default function ServerManagement() {
         </button>
       </div>
 
+      {/* Success Notification Toast */}
+      {successToast && (
+        <div className="p-3 bg-emerald-950/80 border border-emerald-800 text-emerald-300 rounded-lg text-xs flex items-center justify-between shadow-md">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{successToast}</span>
+          </div>
+          <button
+            onClick={() => setSuccessToast(null)}
+            className="text-emerald-400 hover:text-white font-mono text-xs ml-4"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* Servers Cards Grid */}
       {servers.length === 0 ? (
         <div className="p-8 bg-[#252526] border border-dashed border-[#3e3e42] rounded-xl text-center space-y-4">
           <Server className="w-10 h-10 text-amber-400 mx-auto" />
           <div className="space-y-1">
-            <h3 className="text-sm font-bold text-white">No Servers in Fleet</h3>
+            <h3 className="text-sm font-bold text-white">No servers configured</h3>
             <p className="text-xs text-[#858585]">
-              You can add servers individually or click below to deploy the standard 3-server topology.
+              No servers configured. Create a server to start processing requests.
             </p>
           </div>
           <button
             onClick={openAddModal}
-            className="px-4 py-2 text-xs font-semibold text-black bg-[#f59e0b] hover:bg-[#fbbf24] rounded-md transition-colors"
+            className="px-4 py-2 text-xs font-semibold text-black bg-[#f59e0b] hover:bg-[#fbbf24] rounded-md transition-colors cursor-pointer"
           >
-            Create Your First Server
+            Create a Server
           </button>
         </div>
       ) : (
@@ -200,9 +238,9 @@ export default function ServerManagement() {
                 {/* Card Header */}
                 <div className="space-y-2">
                   <div className="flex items-start justify-between gap-2">
-                    <div>
+                    <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <h3 className="text-sm font-bold text-white tracking-tight">
+                        <h3 className="text-sm font-bold text-white tracking-tight truncate">
                           {server.name}
                         </h3>
                         {server.isAutoScaled && (
@@ -211,9 +249,12 @@ export default function ServerManagement() {
                           </span>
                         )}
                       </div>
-                      <span className="text-[11px] text-[#71717a] font-mono">
+                      <div className="text-[11px] text-[#71717a] font-mono mt-0.5">
                         ID: {server.id} {server.scaledFrom && `· From: ${server.scaledFrom}`}
-                      </span>
+                      </div>
+                      <div className="text-[11px] text-amber-400/90 font-mono mt-0.5 truncate" title={server.address}>
+                        <span className="text-[#666]">Host:</span> {server.address || `http://127.0.0.1:${server.port || 8080}`}
+                      </div>
                     </div>
 
                     <div className="flex items-center gap-1.5">
@@ -440,11 +481,38 @@ export default function ServerManagement() {
             <label className="block text-xs font-medium text-[#cccccc] mb-1">Server Name</label>
             <input
               type="text"
+              required
               value={formName}
               onChange={(e) => setFormName(e.target.value)}
-              placeholder="e.g. Server D (High-Memory Node)"
+              placeholder="e.g. Server Alpha (Primary Node)"
               className="w-full bg-[#18181b] border border-[#3e3e42] rounded px-3 py-1.5 text-xs text-white focus:outline-none focus:border-[#f59e0b]"
             />
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            <div className="col-span-2">
+              <label className="block text-xs font-medium text-[#cccccc] mb-1">
+                Server Address / Hostname
+              </label>
+              <input
+                type="text"
+                value={formAddress}
+                onChange={(e) => setFormAddress(e.target.value)}
+                placeholder="e.g. 192.168.1.10 or srv-1.internal"
+                className="w-full bg-[#18181b] border border-[#3e3e42] rounded px-3 py-1.5 text-xs text-white focus:outline-none focus:border-[#f59e0b] font-mono text-[11px]"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-[#cccccc] mb-1">Port</label>
+              <input
+                type="number"
+                min="1"
+                max="65535"
+                value={formPort}
+                onChange={(e) => setFormPort(parseInt(e.target.value) || 8080)}
+                className="w-full bg-[#18181b] border border-[#3e3e42] rounded px-3 py-1.5 text-xs text-white focus:outline-none focus:border-[#f59e0b] font-mono text-[11px]"
+              />
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">

@@ -77,6 +77,13 @@ export function validateServer(server, existingServers = []) {
     errors.push(`Concurrency limit (${concurrencyLimit}) cannot exceed maximum capacity (${maxCapacity}).`);
   }
 
+  if (server.port !== undefined && server.port !== '') {
+    const port = Number(server.port);
+    if (isNaN(port) || port < 1 || port > 65535 || !Number.isInteger(port)) {
+      errors.push('Port must be a valid port integer between 1 and 65535.');
+    }
+  }
+
   return {
     isValid: errors.length === 0,
     errors

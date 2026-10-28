@@ -105,23 +105,24 @@ export default function Dashboard({ onNavigate }) {
         </div>
       </div>
 
-      {/* Initial Setup Banner if fleet is empty */}
+      {/* Empty Fleet Notice Banner */}
       {servers.length === 0 && (
-        <div className="p-6 bg-[#252526] border border-amber-500/50 rounded-xl space-y-3 text-center sm:text-left sm:flex sm:items-center sm:justify-between shadow-lg shadow-amber-500/5">
+        <div className="p-5 bg-[#252526] border border-amber-500/40 rounded-xl space-y-3 sm:space-y-0 sm:flex sm:items-center sm:justify-between shadow-lg">
           <div className="space-y-1">
-            <h3 className="text-sm font-bold text-white flex items-center justify-center sm:justify-start gap-2">
-              <Sparkles className="w-4 h-4 text-amber-400" />
-              Simulator Fleet is Clean & Ready
+            <h3 className="text-sm font-bold text-white flex items-center gap-2">
+              <Server className="w-4 h-4 text-amber-400" />
+              No Servers Configured
             </h3>
             <p className="text-xs text-[#a1a1aa]">
-              Click to deploy initial servers and clients, or navigate to Studio to configure your workload.
+              No servers configured. Create a server to start processing requests.
             </p>
           </div>
           <button
-            onClick={() => initializeFleet({ serverCount: 3, clientCount: 4 })}
-            className="px-4 py-2 text-xs font-bold text-black bg-[#f59e0b] hover:bg-[#fbbf24] rounded-md transition-colors cursor-pointer shrink-0"
+            onClick={() => onNavigate('servers')}
+            className="px-4 py-2 text-xs font-bold text-black bg-[#f59e0b] hover:bg-[#fbbf24] rounded-md transition-colors cursor-pointer shrink-0 flex items-center gap-1.5"
           >
-            Deploy 3 Servers & 4 Clients
+            <Plus className="w-3.5 h-3.5" />
+            <span>Create a Server</span>
           </button>
         </div>
       )}
